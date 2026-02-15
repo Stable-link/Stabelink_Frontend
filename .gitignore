@@ -4,11 +4,18 @@ node_modules/
 # Build output
 dist/
 build/
+*.tsbuildinfo
 
-# Environment (keep .env.example for template)
+# Environment and secrets - NEVER commit .env or any file with real secrets
 .env
 .env.local
 .env.*.local
+.env.development
+.env.development.local
+.env.test
+.env.test.local
+.env.production
+.env.production.local
 
 # OS
 .DS_Store
@@ -25,14 +32,22 @@ Thumbs.db
 *.log
 npm-debug.log*
 pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*
 
 # Cache
 .cache/
 .vite/
-*.tsbuildinfo
+.parcel-cache/
+.turbo/
 
 # Coverage
 coverage/
 
+# Deploy / hosting
+.vercel/
+.netlify/
+
 # Misc
 *.local
+*.zip
