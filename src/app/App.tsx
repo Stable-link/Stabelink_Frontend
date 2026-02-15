@@ -1020,11 +1020,14 @@ export default function App() {
                 </div>
               </MagneticButton>
               
-              <MagneticButton className={`group relative px-10 py-4 rounded-xl transition-all duration-500 overflow-hidden ${
-                isDark 
-                  ? 'bg-gradient-to-br from-[#d1d3e2] via-[#a89dc9] to-[#75629d] text-black hover:shadow-2xl hover:shadow-purple-500/30' 
-                  : 'bg-white border-2 border-slate-200 text-slate-900 hover:border-slate-300 hover:shadow-xl hover:shadow-slate-200/50'
-              }`}>
+              <MagneticButton
+                onClick={() => window.open('https://www.youtube.com/watch?v=ACzGn3tIS8c', '_blank', 'noopener,noreferrer')}
+                className={`group relative px-10 py-4 rounded-xl transition-all duration-500 overflow-hidden ${
+                  isDark 
+                    ? 'bg-gradient-to-br from-[#d1d3e2] via-[#a89dc9] to-[#75629d] text-black hover:shadow-2xl hover:shadow-purple-500/30' 
+                    : 'bg-white border-2 border-slate-200 text-slate-900 hover:border-slate-300 hover:shadow-xl hover:shadow-slate-200/50'
+                }`}
+              >
                 <motion.div 
                   className="absolute inset-0 bg-gradient-to-r from-[#FF1CF7]/0 via-[#B967FF]/10 to-[#00F0FF]/0"
                   initial={{ x: '-100%' }}
