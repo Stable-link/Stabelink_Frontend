@@ -81,7 +81,8 @@ export default function WithdrawPage({ isDark, walletAddress, onBack }: Withdraw
   const availableBalance = balanceFormatted ?? '0.00';
   const pendingSettlement = '0.00';
   const platformFees = '0.00';
-  const networkFee = '~0.12';
+  const networkFeeAmount = 0.12;
+  const networkFeeDisplay = `~${networkFeeAmount.toFixed(2)}`;
   const { mutate: sendTransaction } = useSendTransaction();
 
   useEffect(() => {
@@ -417,10 +418,10 @@ export default function WithdrawPage({ isDark, walletAddress, onBack }: Withdraw
 
                   <div className={`p-6 rounded-2xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-gray-50 border border-gray-200'} mb-8`}>
                     <div className="space-y-4">
-                      <div className="flex items-center justify-between">
-                        <span className={`text-sm ${textMuted}`}>Transaction Hash</span>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-sm font-mono font-semibold ${textPrimary}`}>
+                      <div className="flex items-center justify-between gap-4">
+                        <span className={`text-sm ${textMuted} shrink-0 whitespace-nowrap`}>Transaction Hash</span>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`text-sm font-mono font-semibold ${textPrimary} truncate block`}>
                             {transactionHash}
                           </span>
                           <motion.button
@@ -448,9 +449,9 @@ export default function WithdrawPage({ isDark, walletAddress, onBack }: Withdraw
                           </a>
                         </div>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className={`text-sm ${textMuted}`}>Amount Withdrawn</span>
-                        <span className={`text-lg font-bold ${textPrimary}`}>
+                      <div className="flex items-center justify-between gap-4">
+                        <span className={`text-sm ${textMuted} shrink-0 whitespace-nowrap`}>Amount Withdrawn</span>
+                        <span className={`text-lg font-bold ${textPrimary} text-right`}>
                           ${amount} {selectedToken}
                         </span>
                       </div>
@@ -575,7 +576,7 @@ export default function WithdrawPage({ isDark, walletAddress, onBack }: Withdraw
                           Available: <span className={`font-bold ${textPrimary}`}>${availableBalance}</span>
                         </p>
                         <p className={`text-sm ${textMuted}`}>
-                          Network Fee: <span className={`font-semibold ${textSecondary}`}>~${networkFee}</span>
+                          Network Fee: <span className={`font-semibold ${textSecondary}`}>~${networkFeeDisplay}</span>
                         </p>
                       </div>
                     </div>
@@ -657,13 +658,13 @@ export default function WithdrawPage({ isDark, walletAddress, onBack }: Withdraw
                           <div className="flex items-center justify-between">
                             <span className={`text-sm ${textSecondary}`}>Network Fee</span>
                             <span className={`text-sm font-semibold ${textSecondary}`}>
-                              ~${networkFee}
+                              ~${networkFeeDisplay}
                             </span>
                           </div>
                           <div className="pt-3 border-t border-white/10 flex items-center justify-between">
                             <span className={`text-base font-bold ${textPrimary}`}>You'll Receive</span>
                             <span className={`text-xl font-bold ${textPrimary}`}>
-                              ${(parseFloat(amount) - parseFloat(networkFee)).toFixed(2)}
+                              ${(parseFloat(amount) - networkFeeAmount).toFixed(2)}
                             </span>
                           </div>
                         </div>

@@ -175,6 +175,8 @@ export interface PublicInvoice {
   client_email: string | null;
   creator_wallet: string;
   status: string;
+  description: string | null;
+  due_date: string | null;
 }
 
 export async function getPublicInvoice(id: string): Promise<PublicInvoice> {
@@ -207,11 +209,20 @@ export async function deleteInvoice(id: string): Promise<void> {
   }
 }
 
+export async function sendInvoiceReminder(id: string): Promise<{ ok: boolean; message: string }> {
+  const res = await fetchWithAuth(`/api/invoices/${encodeURIComponent(id)}/send-reminder`, { method: "POST" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error ?? res.statusText);
+  return data as { ok: boolean; message: string };
+}
+
 export async function createInvoice(body: {
   amount: number;
   token: string;
   client_name?: string;
   client_email?: string;
+  description?: string;
+  due_date?: string;
   splits: { wallet: string; percentage: number }[];
   onchain_invoice_id?: number;
   creator_wallet?: string;
@@ -233,6 +244,8 @@ export async function createInvoice(body: {
       token: body.token,
       client_name: body.client_name ?? undefined,
       client_email: body.client_email ?? undefined,
+      description: body.description ?? undefined,
+      due_date: body.due_date ?? undefined,
       splits: body.splits,
       ...(body.onchain_invoice_id != null && { onchain_invoice_id: body.onchain_invoice_id }),
       ...(body.creator_wallet && { creator_wallet: body.creator_wallet }),

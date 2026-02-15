@@ -49,7 +49,7 @@ import AnalyticsPage from './AnalyticsPage';
 import ActivityPage from './ActivityPage';
 import FaucetPage from './FaucetPage';
 import InvoiceDetailModal from './InvoiceDetailModal';
-import { listInvoices, listWithdrawals, getApiKey, setApiKey, getOrganization, getWorkspaces, setWorkspaces, addWorkspace, getReadNotificationIds, setReadNotificationIds, API_BASE_URL, type Workspace } from '../../api';
+import { listInvoices, listWithdrawals, getApiKey, setApiKey, getOrganization, getWorkspaces, setWorkspaces, addWorkspace, getReadNotificationIds, setReadNotificationIds, sendInvoiceReminder, API_BASE_URL, type Workspace } from '../../api';
 import type { ApiInvoice, ApiWithdrawal } from '../../api';
 import { etherlinkShadownet, thirdwebClient } from '../../client';
 import { INVOICE_PAYMENTS_ADDRESS, INVOICE_PAYMENTS_ABI, USDC_ADDRESS } from '../../contract';
@@ -1529,7 +1529,30 @@ export default function Dashboard({ isDark, toggleTheme, walletAddress }: Dashbo
 
             {/* Premium Wallet Cards - Full Width 4 Column Grid */}
             <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 md:gap-6">
-              {walletCards.map((card, index) => (
+              {dashboardLoading
+                ? walletCards.map((card, index) => (
+                    <motion.div
+                      key={card.name}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.1 }}
+                      className={`${glassCard} rounded-2xl p-4 md:p-6 shadow-xl relative overflow-hidden`}
+                    >
+                      <div className={`absolute top-0 right-0 w-24 h-24 md:w-32 md:h-32 bg-gradient-to-br ${card.gradient} rounded-full blur-3xl opacity-50`} />
+                      <div className="relative">
+                        <div className="flex items-center justify-between mb-3 md:mb-4">
+                          <div className={`w-10 h-10 md:w-12 md:h-12 rounded-xl bg-gradient-to-br ${card.iconBg} flex items-center justify-center shadow-lg opacity-80`}>
+                            <card.icon className="w-5 h-5 md:w-6 md:h-6 text-white" />
+                          </div>
+                          <div className={`h-4 w-8 rounded ${isDark ? 'bg-white/10' : 'bg-gray-200'} animate-pulse`} />
+                        </div>
+                        <h3 className={`text-xs md:text-sm font-semibold ${textMuted} mb-2`}>{card.name}</h3>
+                        <div className={`h-8 md:h-9 w-24 rounded mb-2 ${isDark ? 'bg-white/15' : 'bg-gray-200/80'} animate-pulse`} />
+                        <div className={`h-3 w-20 rounded ${isDark ? 'bg-white/10' : 'bg-gray-200'} animate-pulse`} />
+                      </div>
+                    </motion.div>
+                  ))
+                : walletCards.map((card, index) => (
                 <motion.div
                   key={card.name}
                   initial={{ opacity: 0, y: 20 }}
@@ -1654,7 +1677,7 @@ export default function Dashboard({ isDark, toggleTheme, walletAddress }: Dashbo
                     <p className={`text-xs ${textSecondary} text-center max-w-[200px]`}>Payments and withdrawals will appear here</p>
                   </div>
                 ) : (
-                  <div className="space-y-3 md:space-y-4 flex-1 min-h-0 overflow-auto">
+                  <div className="space-y-3 md:space-y-4 min-h-0 max-h-[380px] overflow-y-auto overflow-x-hidden pr-1">
                     {activities.map((activity, index) => (
                       <motion.div
                         key={index}
@@ -1788,6 +1811,11 @@ export default function Dashboard({ isDark, toggleTheme, walletAddress }: Dashbo
           isDark={isDark}
           invoice={selectedInvoice}
           onClose={() => setSelectedInvoice(null)}
+          onSendReminder={async (invoiceId) => {
+            await sendInvoiceReminder(invoiceId);
+            const url = `${typeof window !== 'undefined' ? window.location.origin : ''}/checkout?id=${invoiceId}`;
+            await navigator.clipboard.writeText(url);
+          }}
         />
       )}
     </div>

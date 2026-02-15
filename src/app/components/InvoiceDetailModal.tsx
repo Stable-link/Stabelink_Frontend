@@ -1,4 +1,5 @@
-import { X, Calendar, DollarSign, Copy, CheckCircle2, Clock, AlertCircle, ExternalLink, Download, Send, Link2 } from 'lucide-react';
+import { useState } from 'react';
+import { X, Calendar, DollarSign, Copy, CheckCircle2, Clock, AlertCircle, ExternalLink, Download, Send, Link2, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface InvoiceDetailModalProps {
@@ -18,9 +19,13 @@ interface InvoiceDetailModalProps {
     txHash?: string;
   } | null;
   onClose: () => void;
+  onSendReminder?: (invoiceId: string) => void | Promise<void>;
 }
 
-export default function InvoiceDetailModal({ isDark, invoice, onClose }: InvoiceDetailModalProps) {
+export default function InvoiceDetailModal({ isDark, invoice, onClose, onSendReminder }: InvoiceDetailModalProps) {
+  const [sendingReminder, setSendingReminder] = useState(false);
+  const [reminderSent, setReminderSent] = useState(false);
+
   if (!invoice) return null;
 
   const textPrimary = isDark ? 'text-white' : 'text-gray-900';
@@ -272,12 +277,27 @@ export default function InvoiceDetailModal({ isDark, invoice, onClose }: Invoice
               Download PDF
             </motion.button>
             <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              className="flex-1 px-4 py-3 rounded-xl bg-gradient-to-r from-[#FF1CF7] to-[#B967FF] font-bold text-white shadow-lg shadow-[#FF1CF7]/30 hover:shadow-[#FF1CF7]/50 transition-all flex items-center justify-center gap-2"
+              whileHover={!(sendingReminder || reminderSent) ? { scale: 1.02 } : {}}
+              whileTap={!(sendingReminder || reminderSent) ? { scale: 0.98 } : {}}
+              disabled={sendingReminder || reminderSent || invoice.status === 'Paid'}
+              onClick={async () => {
+                if (!onSendReminder || invoice.status === 'Paid') return;
+                setSendingReminder(true);
+                try {
+                  await onSendReminder(invoice.id);
+                  setReminderSent(true);
+                } finally {
+                  setSendingReminder(false);
+                }
+              }}
+              className={`flex-1 px-4 py-3 rounded-xl font-bold transition-all flex items-center justify-center gap-2 ${
+                sendingReminder || reminderSent || invoice.status === 'Paid'
+                  ? isDark ? 'bg-white/10 text-gray-400 cursor-not-allowed' : 'bg-gray-200 text-gray-500 cursor-not-allowed'
+                  : 'bg-gradient-to-r from-[#FF1CF7] to-[#B967FF] text-white shadow-lg shadow-[#FF1CF7]/30 hover:shadow-[#FF1CF7]/50'
+              }`}
             >
-              <Send className="w-4 h-4" />
-              Send Reminder
+              {sendingReminder ? <Loader2 className="w-4 h-4 animate-spin" /> : reminderSent ? <CheckCircle2 className="w-4 h-4" /> : <Send className="w-4 h-4" />}
+              {sendingReminder ? 'Sending…' : reminderSent ? 'Reminder sent' : 'Send Reminder'}
             </motion.button>
           </div>
         </motion.div>

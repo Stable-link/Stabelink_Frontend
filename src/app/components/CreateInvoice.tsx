@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import {
   ArrowRight,
@@ -21,7 +21,7 @@ import {
   Loader2,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { getContract, prepareContractCall } from 'thirdweb';
+import { getContract, prepareContractCall, waitForReceipt } from 'thirdweb';
 import { useSendTransaction } from 'thirdweb/react';
 import { etherlinkShadownet } from '../../client';
 import { thirdwebClient } from '../../client';
@@ -60,8 +60,16 @@ export default function CreateInvoice({ isDark, walletAddress, onBack }: CreateI
   const [submitState, setSubmitState] = useState<'idle' | 'sending' | 'syncing' | 'success' | 'error'>('idle');
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [createdTxHash, setCreatedTxHash] = useState<string | null>(null);
+  const dueDateInputRef = useRef<HTMLInputElement>(null);
 
   const { mutate: sendTransaction } = useSendTransaction();
+
+  const openDueDatePicker = () => {
+    dueDateInputRef.current?.focus();
+    if (typeof dueDateInputRef.current?.showPicker === 'function') {
+      dueDateInputRef.current.showPicker();
+    }
+  };
 
   // Professional glass morphism styles
   const glassCard = isDark 
@@ -164,9 +172,8 @@ export default function CreateInvoice({ isDark, walletAddress, onBack }: CreateI
       onSuccess: async (result) => {
         setCreatedTxHash(result.transactionHash ?? null);
         let onchainInvoiceId: number | undefined;
-        const receipt = result.receipt as { logs?: Array<{ address?: string; topics?: string[] }> } | undefined;
-        const logs = receipt?.logs ?? (receipt as { logEntries?: Array<{ address?: string; topics?: string[] }> })?.logEntries;
-        if (Array.isArray(logs) && logs.length > 0) {
+
+        const parseInvoiceIdFromLogs = (logs: Array<{ address?: string; topics?: string[] }>) => {
           const contractAddr = INVOICE_PAYMENTS_ADDRESS.toLowerCase();
           for (const log of logs) {
             const addr = (log as { address?: string }).address?.toLowerCase();
@@ -175,14 +182,33 @@ export default function CreateInvoice({ isDark, walletAddress, onBack }: CreateI
             if (topics && topics.length >= 2) {
               try {
                 const id = Number(BigInt(topics[1]));
-                if (Number.isInteger(id) && id >= 0) {
-                  onchainInvoiceId = id;
-                  break;
-                }
+                if (Number.isInteger(id) && id >= 0) return id;
               } catch {
                 // ignore parse errors
               }
             }
+          }
+          return undefined;
+        };
+
+        const receipt = result.receipt as { logs?: Array<{ address?: string; topics?: string[] }> } | undefined;
+        const logs = receipt?.logs ?? (receipt as { logEntries?: Array<{ address?: string; topics?: string[] }> })?.logEntries;
+        if (Array.isArray(logs) && logs.length > 0) {
+          onchainInvoiceId = parseInvoiceIdFromLogs(logs);
+        }
+        if (onchainInvoiceId === undefined && result.transactionHash) {
+          try {
+            const fetchedReceipt = await waitForReceipt({
+              client: thirdwebClient,
+              chain: etherlinkShadownet,
+              transactionHash: result.transactionHash,
+            });
+            const fetchedLogs = (fetchedReceipt as { logs?: Array<{ address?: string; topics?: string[] }> }).logs;
+            if (Array.isArray(fetchedLogs) && fetchedLogs.length > 0) {
+              onchainInvoiceId = parseInvoiceIdFromLogs(fetchedLogs);
+            }
+          } catch {
+            // proceed without onchain id; backend will store -1
           }
         }
         setSubmitState('syncing');
@@ -192,6 +218,8 @@ export default function CreateInvoice({ isDark, walletAddress, onBack }: CreateI
             token: formData.token,
             client_name: formData.clientName || undefined,
             client_email: formData.clientEmail || undefined,
+            description: formData.description?.trim() || undefined,
+            due_date: formData.dueDate?.trim() || undefined,
             splits: [
               { wallet: walletAddress, percentage: formData.yourSplit },
               { wallet: PLATFORM_FEE_RECIPIENT, percentage: formData.platformFee },
@@ -358,10 +386,11 @@ export default function CreateInvoice({ isDark, walletAddress, onBack }: CreateI
                       <DollarSign className={`absolute left-5 top-1/2 -translate-y-1/2 w-8 h-8 ${textMuted}`} />
                       <input
                         type="number"
+                        inputMode="decimal"
                         value={formData.amount}
                         onChange={(e) => handleInputChange('amount', e.target.value)}
                         placeholder="0.00"
-                        className={`w-full pl-16 pr-5 py-6 rounded-2xl text-3xl font-bold ${
+                        className={`w-full pl-16 pr-5 py-6 rounded-2xl text-3xl font-bold [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none [&]:[-moz-appearance:textfield] ${
                           isDark 
                             ? 'bg-white/5 border border-white/10 text-white placeholder-gray-600' 
                             : 'bg-gray-50 border border-gray-200 text-gray-900 placeholder-gray-400'
@@ -403,12 +432,20 @@ export default function CreateInvoice({ isDark, walletAddress, onBack }: CreateI
                       Due Date <span className={`text-xs ${textMuted} font-normal`}>(Optional)</span>
                     </label>
                     <div className="relative">
-                      <Calendar className={`absolute left-5 top-1/2 -translate-y-1/2 w-5 h-5 ${textMuted}`} />
+                      <button
+                        type="button"
+                        onClick={openDueDatePicker}
+                        className={`absolute left-3 top-1/2 -translate-y-1/2 p-2 rounded-xl z-10 ${isDark ? 'hover:bg-white/10 text-gray-400' : 'hover:bg-gray-200 text-gray-500'}`}
+                        aria-label="Open date picker"
+                      >
+                        <Calendar className="w-5 h-5" />
+                      </button>
                       <input
+                        ref={dueDateInputRef}
                         type="date"
                         value={formData.dueDate}
                         onChange={(e) => handleInputChange('dueDate', e.target.value)}
-                        className={`w-full pl-14 pr-5 py-4 rounded-2xl ${
+                        className={`w-full pl-14 pr-4 py-4 rounded-2xl [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:pointer-events-none [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:right-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full ${
                           isDark 
                             ? 'bg-white/5 border border-white/10 text-white' 
                             : 'bg-gray-50 border border-gray-200 text-gray-900'
@@ -724,7 +761,7 @@ export default function CreateInvoice({ isDark, walletAddress, onBack }: CreateI
                   </motion.button>
 
                   <motion.button
-                    whileHover={{ scale: submitState === 'idle' ? 1.02 : 1 }}
+                    whileHover={{ scale: submitState === 'idle' || submitState === 'error' ? 1.02 : 1 }}
                     whileTap={{ scale: 0.98 }}
                     onClick={handleSubmit}
                     disabled={submitState === 'sending' || submitState === 'syncing' || submitState === 'success'}
@@ -733,10 +770,10 @@ export default function CreateInvoice({ isDark, walletAddress, onBack }: CreateI
                     {(submitState === 'sending' || submitState === 'syncing') && <Loader2 className="w-6 h-6 animate-spin" />}
                     {submitState === 'sending' && 'Confirm in wallet…'}
                     {submitState === 'syncing' && 'Syncing to backend…'}
-                    {submitState === 'idle' && (
+                    {(submitState === 'idle' || submitState === 'error') && (
                       <>
                         <Zap className="w-6 h-6" />
-                        Deploy Invoice On-Chain
+                        {submitState === 'error' ? 'Try Again' : 'Deploy Invoice On-Chain'}
                       </>
                     )}
                     {submitState === 'success' && 'Deployed'}

@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import InvoiceDetailModal from './InvoiceDetailModal';
-import { listInvoices, getApiKey, deleteInvoice, type ApiInvoice } from '../../api';
+import { listInvoices, getApiKey, deleteInvoice, sendInvoiceReminder, type ApiInvoice } from '../../api';
 
 interface InvoicesPageProps {
   isDark: boolean;
@@ -101,6 +101,7 @@ export default function InvoicesPage({ isDark, onBack, onCreate }: InvoicesPageP
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reminderMessage, setReminderMessage] = useState<string | null>(null);
 
   const fetchInvoices = useCallback(() => {
     if (!getApiKey()) {
@@ -236,10 +237,17 @@ export default function InvoicesPage({ isDark, onBack, onCreate }: InvoicesPageP
     });
   };
 
-  const handleSendReminder = (invoice: Invoice) => {
-    console.log('Sending reminder for invoice:', invoice.invoiceId);
-    // TODO: Implement send reminder logic
+  const handleSendReminder = async (invoice: Invoice) => {
     setActiveActionMenu(null);
+    try {
+      await sendInvoiceReminder(invoice.id);
+      const url = `${typeof window !== 'undefined' ? window.location.origin : ''}/checkout?id=${invoice.id}`;
+      await navigator.clipboard.writeText(url);
+      setReminderMessage('Reminder sent! Payment link copied to clipboard.');
+      setTimeout(() => setReminderMessage(null), 4000);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to send reminder');
+    }
   };
 
   const handleEdit = (invoice: Invoice) => {
@@ -756,6 +764,17 @@ export default function InvoicesPage({ isDark, onBack, onCreate }: InvoicesPageP
               </div>
             </motion.div>
 
+            {reminderMessage && (
+              <motion.div
+                initial={{ opacity: 0, y: -8 }}
+                animate={{ opacity: 1, y: 0 }}
+                className={`mb-4 px-4 py-3 rounded-xl flex items-center gap-2 ${isDark ? 'bg-emerald-500/10 border border-emerald-500/20 text-emerald-400' : 'bg-emerald-50 border border-emerald-200 text-emerald-700'}`}
+              >
+                <CheckCircle2 className="w-5 h-5 shrink-0" />
+                <span className="text-sm font-semibold">{reminderMessage}</span>
+              </motion.div>
+            )}
+
             {/* Invoice Table */}
             <motion.div
               initial={{ opacity: 0, y: 20 }}
@@ -983,6 +1002,17 @@ export default function InvoicesPage({ isDark, onBack, onCreate }: InvoicesPageP
           isDark={isDark}
           invoice={selectedInvoice}
           onClose={() => setSelectedInvoice(null)}
+          onSendReminder={async (invoiceId) => {
+            try {
+              await sendInvoiceReminder(invoiceId);
+              const url = `${typeof window !== 'undefined' ? window.location.origin : ''}/checkout?id=${invoiceId}`;
+              await navigator.clipboard.writeText(url);
+              setReminderMessage('Reminder sent! Payment link copied to clipboard.');
+              setTimeout(() => setReminderMessage(null), 4000);
+            } catch (e) {
+              setError(e instanceof Error ? e.message : 'Failed to send reminder');
+            }
+          }}
         />
       )}
     </div>

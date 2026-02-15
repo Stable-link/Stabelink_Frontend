@@ -1,8 +1,8 @@
 import { useState, useEffect } from 'react';
-import { useSearchParams } from 'react-router';
+import { useSearchParams, useNavigate } from 'react-router';
 import { useModeAnimation } from 'react-theme-switch-animation';
 import { useActiveAccount, useConnectModal, useSendTransaction, useSwitchActiveWalletChain } from 'thirdweb/react';
-import { getContract, prepareContractCall } from 'thirdweb';
+import { getContract, prepareContractCall, waitForReceipt } from 'thirdweb';
 import { etherlinkShadownet } from '../../client';
 import { thirdwebClient } from '../../client';
 import { getPublicInvoice, type PublicInvoice } from '../../api';
@@ -26,6 +26,7 @@ import {
   Sun,
   Moon,
   ArrowRight,
+  ArrowLeft,
   Lock,
   Globe,
 } from 'lucide-react';
@@ -114,6 +115,7 @@ function LooperBg({ isDark }: { isDark: boolean }) {
 
 export default function CheckoutPage({ isDark, toggleTheme }: CheckoutPageProps) {
   const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
   const invoiceIdFromUrl = searchParams.get('id');
 
   const [invoice, setInvoice] = useState<PublicInvoice | null>(null);
@@ -180,12 +182,22 @@ export default function CheckoutPage({ isDark, toggleTheme }: CheckoutPageProps)
     ? 'bg-gradient-to-br from-[#1a1a24]/95 to-[#16161f]/95 backdrop-blur-2xl border border-white/10'
     : 'bg-white/95 backdrop-blur-2xl border border-gray-200/50';
 
+  const formatDueDate = (iso: string | null | undefined) => {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      return Number.isNaN(d.getTime()) ? '—' : d.toLocaleDateString('en-US', { dateStyle: 'medium' });
+    } catch {
+      return '—';
+    }
+  };
+
   const invoiceData = invoice
     ? {
         merchantName: invoice.client_name || 'Merchant',
         invoiceId: `INV-${invoice.onchain_invoice_id}`,
-        description: 'Stablecoin invoice payment',
-        dueDate: '—',
+        description: invoice.description?.trim() || 'Stablecoin invoice payment',
+        dueDate: formatDueDate(invoice.due_date),
         amount: Number(invoice.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
         amountNum: Number(invoice.amount),
         token: invoice.token,
@@ -203,6 +215,11 @@ export default function CheckoutPage({ isDark, toggleTheme }: CheckoutPageProps)
   const handlePay = () => {
     if (!invoice || !account || !USDC_ADDRESS?.startsWith('0x')) {
       setPayError('Missing invoice, wallet, or USDC address.');
+      return;
+    }
+    if (invoice.onchain_invoice_id < 0) {
+      setPayError('This invoice cannot be paid. The merchant needs to re-create it (invalid on-chain id).');
+      setPaymentState('failed');
       return;
     }
     setPayError(null);
@@ -226,7 +243,24 @@ export default function CheckoutPage({ isDark, toggleTheme }: CheckoutPageProps)
       params: [INVOICE_PAYMENTS_ADDRESS as `0x${string}`, amountRaw],
     });
     sendTransaction(approveCall, {
-      onSuccess: (result) => {
+      onSuccess: async (result) => {
+        const hash = result.transactionHash;
+        if (!hash) {
+          setPayError('Approval succeeded but no transaction hash. Click Pay again.');
+          setPaymentState('failed');
+          return;
+        }
+        try {
+          await waitForReceipt({
+            client: thirdwebClient,
+            chain: etherlinkShadownet,
+            transactionHash: hash,
+          });
+        } catch {
+          setPayError('Approval is taking longer than expected. Please wait a moment and click Pay again.');
+          setPaymentState('failed');
+          return;
+        }
         const payCall = prepareContractCall({
           contract: paymentsContract,
           method: 'function payInvoice(uint256 invoiceId)',
@@ -234,8 +268,8 @@ export default function CheckoutPage({ isDark, toggleTheme }: CheckoutPageProps)
         });
         sendTransaction(payCall, {
           onSuccess: (payResult) => {
-            const hash = payResult.transactionHash ?? payResult.receipt?.transactionHash ?? '';
-            setTransactionHash(hash.startsWith('0x') ? hash : `0x${hash}`);
+            const payHash = payResult.transactionHash ?? (payResult as { receipt?: { transactionHash?: string } }).receipt?.transactionHash ?? '';
+            setTransactionHash(payHash.startsWith('0x') ? payHash : `0x${payHash}`);
             setPaymentState('success');
           },
           onError: (err) => {
@@ -331,11 +365,9 @@ export default function CheckoutPage({ isDark, toggleTheme }: CheckoutPageProps)
       {/* Minimal Top Bar */}
       <header className={`sticky top-0 z-50 border-b ${isDark ? 'bg-[#0a0a0f]/80 border-white/5' : 'bg-white/80 border-gray-200'} backdrop-blur-2xl`}>
         <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
-          {/* Logo */}
+          {/* Left: Logo */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 bg-gradient-to-br from-[#FF1CF7] to-[#B967FF] rounded-xl flex items-center justify-center shadow-lg shadow-[#FF1CF7]/30">
-              <span className="text-white font-bold text-lg">S</span>
-            </div>
+            <img src="/stable_link_logo.svg" alt="StableLink" className="w-10 h-10 rounded-xl object-contain flex-shrink-0" />
             <div>
               <h1 className={`font-bold text-base ${textPrimary}`}>StableLink</h1>
               <p className={`text-[10px] ${textMuted}`}>Payment Platform</p>
@@ -369,7 +401,16 @@ export default function CheckoutPage({ isDark, toggleTheme }: CheckoutPageProps)
       </header>
 
       {/* Main Content */}
-      <main className="relative z-10 max-w-7xl mx-auto px-6 py-12 lg:py-20">
+      <main className="relative z-10 max-w-7xl mx-auto px-6 pt-6 pb-12 lg:pt-8 lg:pb-20">
+        <motion.button
+          whileHover={{ x: -2 }}
+          whileTap={{ scale: 0.98 }}
+          onClick={() => navigate('/dashboard')}
+          className={`flex items-center gap-2 mb-6 font-semibold text-sm transition-colors ${isDark ? 'text-gray-300 hover:text-white' : 'text-gray-600 hover:text-gray-900'}`}
+        >
+          <ArrowLeft className="w-4 h-4 flex-shrink-0" />
+          <span>Back to Dashboard</span>
+        </motion.button>
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:gap-12">
           {/* Left/Center - Payment Card */}
           <div className="lg:col-span-2">
@@ -674,25 +715,38 @@ export default function CheckoutPage({ isDark, toggleTheme }: CheckoutPageProps)
 
                         {paymentState === 'connected' && isCorrectNetwork && (
                           <>
-                            <p className={`text-xs ${textMuted} mb-2`}>
-                              You may see two wallet prompts: first Approve USDC, then Pay.
-                            </p>
-                            <motion.button
-                              whileHover={{ scale: 1.02 }}
-                              whileTap={{ scale: 0.98 }}
-                              onClick={handlePay}
-                              disabled={isTxPending}
-                              className="w-full flex items-center justify-center gap-3 px-6 py-5 rounded-2xl bg-gradient-to-r from-[#FF1CF7] to-[#B967FF] font-bold text-white shadow-xl shadow-[#FF1CF7]/40 hover:shadow-[#FF1CF7]/60 transition-all text-base disabled:opacity-70 disabled:pointer-events-none"
-                            >
-                              {isTxPending ? (
-                                <Loader2 className="w-5 h-5 animate-spin" />
-                              ) : (
-                                <>
-                                  Pay ${invoiceData?.amount} {invoiceData?.token}
-                                  <ArrowRight className="w-5 h-5" />
-                                </>
-                              )}
-                            </motion.button>
+                            {invoice.onchain_invoice_id < 0 ? (
+                              <div className={`p-4 rounded-2xl ${isDark ? 'bg-amber-500/10 border border-amber-500/20' : 'bg-amber-50 border border-amber-200'}`}>
+                                <p className={`text-sm font-semibold ${isDark ? 'text-amber-400' : 'text-amber-700'}`}>
+                                  This invoice cannot be paid yet.
+                                </p>
+                                <p className={`text-xs ${textSecondary} mt-1`}>
+                                  The merchant needs to re-create this invoice. Please contact them for a new payment link.
+                                </p>
+                              </div>
+                            ) : (
+                              <>
+                                <p className={`text-xs ${textMuted} mb-2`}>
+                                  You may see two wallet prompts: first Approve USDC, then Pay.
+                                </p>
+                                <motion.button
+                                  whileHover={{ scale: 1.02 }}
+                                  whileTap={{ scale: 0.98 }}
+                                  onClick={handlePay}
+                                  disabled={isTxPending}
+                                  className="w-full flex items-center justify-center gap-3 px-6 py-5 rounded-2xl bg-gradient-to-r from-[#FF1CF7] to-[#B967FF] font-bold text-white shadow-xl shadow-[#FF1CF7]/40 hover:shadow-[#FF1CF7]/60 transition-all text-base disabled:opacity-70 disabled:pointer-events-none"
+                                >
+                                  {isTxPending ? (
+                                    <Loader2 className="w-5 h-5 animate-spin" />
+                                  ) : (
+                                    <>
+                                      Pay ${invoiceData?.amount} {invoiceData?.token}
+                                      <ArrowRight className="w-5 h-5" />
+                                    </>
+                                  )}
+                                </motion.button>
+                              </>
+                            )}
                             {payError && (
                               <p className={`text-sm ${isDark ? 'text-red-400' : 'text-red-600'}`}>{payError}</p>
                             )}

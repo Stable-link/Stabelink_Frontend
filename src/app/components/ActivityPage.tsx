@@ -308,16 +308,28 @@ export default function ActivityPage({ isDark, walletAddress, onBack }: Activity
                               {activity.date}
                             </span>
                             {activity.txHash && (
-                              <button className="flex items-center gap-1 text-xs text-[#FF1CF7] hover:underline font-semibold">
+                              <a
+                                href={`https://shadownet.explorer.etherlink.com/tx/${activity.txHash.startsWith('0x') ? activity.txHash : `0x${activity.txHash}`}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex items-center gap-1 text-xs text-[#FF1CF7] hover:underline font-semibold"
+                              >
                                 <ExternalLink className="w-3 h-3" />
                                 View TX
-                              </button>
+                              </a>
                             )}
                             {activity.invoiceId && (
-                              <button className="flex items-center gap-1 text-xs text-[#FF1CF7] hover:underline font-semibold">
+                              <a
+                                href={`${typeof window !== 'undefined' ? window.location.origin : ''}/checkout?id=${activity.invoiceId}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex items-center gap-1 text-xs text-[#FF1CF7] hover:underline font-semibold"
+                              >
                                 <Eye className="w-3 h-3" />
                                 View Invoice
-                              </button>
+                              </a>
                             )}
                           </div>
                         </div>
