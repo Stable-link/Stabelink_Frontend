@@ -1275,7 +1275,7 @@ export default function Dashboard({ isDark, toggleTheme, walletAddress }: Dashbo
             </div>
 
             {/* thirdweb ConnectButton: wallet + disconnect and other options */}
-            <ConnectButton client={thirdwebClient} />
+            <ConnectButton client={thirdwebClient} theme={isDark ? 'dark' : 'light'} />
           </div>
         </div>
       </nav>

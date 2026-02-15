@@ -118,20 +118,22 @@ export default function InvoiceDetailModal({ isDark, invoice, onClose }: Invoice
           {/* Content */}
           <div className="px-6 py-6 max-h-[70vh] overflow-y-auto">
             {/* Invoice ID & Status */}
-            <div className="flex items-start justify-between mb-8">
-              <div>
-                <p className={`text-sm font-semibold ${textMuted} mb-1`}>Invoice ID</p>
-                <div className="flex items-center gap-2">
-                  <p className={`text-2xl font-mono font-bold ${textPrimary}`}>{displayInvoiceId}</p>
-                  <button
-                    onClick={() => copyToClipboard(displayInvoiceId)}
-                    className={`p-1.5 rounded-lg ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100'} transition-colors`}
-                  >
-                    <Copy className={`w-4 h-4 ${textMuted}`} />
-                  </button>
+            <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+              <div className="flex items-center gap-2 min-w-0">
+                <div>
+                  <p className={`text-sm font-semibold ${textMuted} mb-1`}>Invoice ID</p>
+                  <div className="flex items-center gap-2">
+                    <p className={`text-2xl font-mono font-bold ${textPrimary}`}>{displayInvoiceId}</p>
+                    <button
+                      onClick={() => copyToClipboard(displayInvoiceId)}
+                      className={`p-1.5 rounded-lg flex-shrink-0 ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100'} transition-colors`}
+                    >
+                      <Copy className={`w-4 h-4 ${textMuted}`} />
+                    </button>
+                  </div>
                 </div>
               </div>
-              <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold border ${getStatusColor(invoice.status)}`}>
+              <span className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold border flex-shrink-0 ${getStatusColor(invoice.status)}`}>
                 <StatusIcon className="w-4 h-4" />
                 {invoice.status.charAt(0).toUpperCase() + invoice.status.slice(1)}
               </span>
@@ -198,25 +200,28 @@ export default function InvoiceDetailModal({ isDark, invoice, onClose }: Invoice
             {invoice.txHash && invoice.txHash !== 'Pending...' && invoice.txHash !== 'Not paid' && (
               <div className={`${isDark ? 'bg-white/5' : 'bg-gray-50'} rounded-xl p-5`}>
                 <p className={`text-xs font-bold uppercase tracking-wider ${textMuted} mb-3`}>Transaction Hash</p>
-                <div className="flex items-center gap-2">
-                  <p className={`text-sm font-mono ${textPrimary} break-all`}>{invoice.txHash}</p>
-                  <button
-                    onClick={() => copyToClipboard(invoice.txHash || '')}
-                    className={`p-1.5 rounded-lg ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100'} transition-colors flex-shrink-0`}
-                  >
-                    <Copy className={`w-4 h-4 ${textMuted}`} />
-                  </button>
-                  {explorerTxUrl && (
-                    <a
-                      href={explorerTxUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className={`p-1.5 rounded-lg ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100'} transition-colors flex-shrink-0`}
-                      title="View on explorer"
+                <div className="flex items-center gap-3 min-w-0">
+                  <p className={`text-sm font-mono ${textPrimary} break-all flex-1 min-w-0`}>{invoice.txHash}</p>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      onClick={() => copyToClipboard(invoice.txHash || '')}
+                      className={`p-2 rounded-lg ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100'} transition-colors`}
+                      title="Copy hash"
                     >
-                      <ExternalLink className={`w-4 h-4 ${textMuted}`} />
-                    </a>
-                  )}
+                      <Copy className={`w-4 h-4 ${textMuted}`} />
+                    </button>
+                    {explorerTxUrl && (
+                      <a
+                        href={explorerTxUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className={`p-2 rounded-lg ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100'} transition-colors`}
+                        title="View on explorer"
+                      >
+                        <ExternalLink className={`w-4 h-4 ${textMuted}`} />
+                      </a>
+                    )}
+                  </div>
                 </div>
               </div>
             )}

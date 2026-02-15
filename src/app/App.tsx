@@ -706,7 +706,7 @@ export default function App() {
               transition={{ type: "spring", stiffness: 400, damping: 10 }}
               onClick={() => navigate('/')}
             >
-              <img src="/favicon.svg" alt="StableLink" className="w-14 h-14 sm:w-16 sm:h-16 rounded-lg sm:rounded-xl object-contain flex-shrink-0" />
+              <img src="/favicon.svg" alt="StableLink" className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg sm:rounded-xl object-contain flex-shrink-0" />
               <span className={`text-lg sm:text-xl md:text-2xl font-bold tracking-tight transition-all duration-300 ${
                 isDark 
                   ? 'bg-gradient-to-r from-white to-white/80 bg-clip-text text-transparent' 
@@ -1444,7 +1444,7 @@ export default function App() {
               className="flex items-center justify-center gap-3 group"
               whileHover={{ scale: 1.05 }}
             >
-              <img src="/favicon.svg" alt="StableLink" className="w-16 h-16 rounded-xl object-contain flex-shrink-0" />
+              <img src="/favicon.svg" alt="StableLink" className="w-10 h-10 rounded-xl object-contain flex-shrink-0" />
               <span className={`text-2xl font-bold ${
                 isDark 
                   ? 'bg-gradient-to-r from-white to-white/80 bg-clip-text text-transparent' 

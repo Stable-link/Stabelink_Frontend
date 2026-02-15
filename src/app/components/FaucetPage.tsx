@@ -114,10 +114,9 @@ export default function FaucetPage({ isDark, walletAddress, onBack }: FaucetPage
     return () => clearTimeout(timeout);
   }, [claimState]);
 
-  // Reset claim state when wallet or faucet config changes (e.g. avoid stale "Processing...")
+  // Reset stale confirming/processing when wallet or faucet config changes
   useEffect(() => {
     setClaimState((prev) => (prev === 'confirming' || prev === 'processing' ? 'idle' : prev));
-    setError(null);
   }, [walletAddress, hasFaucet]);
 
   const canClaim = claimStatus ? (claimStatus as [boolean, bigint])[0] : false;
@@ -346,9 +345,13 @@ export default function FaucetPage({ isDark, walletAddress, onBack }: FaucetPage
                       <CheckCircle2 className="w-5 h-5 text-emerald-500 flex-shrink-0 mt-0.5" />
                       <div className="flex-1">
                         <p className="text-sm font-semibold text-emerald-400 mb-1">Tokens Claimed!</p>
-                        <p className="text-xs text-emerald-400/80">
-                          Transaction: {transactionHash.slice(0, 10)}...{transactionHash.slice(-8)}
-                        </p>
+                        {transactionHash ? (
+                          <p className="text-xs text-emerald-400/80">
+                            Transaction: {transactionHash.slice(0, 10)}...{transactionHash.slice(-8)}
+                          </p>
+                        ) : (
+                          <p className="text-xs text-emerald-400/80">Refresh the page to see updated balance.</p>
+                        )}
                       </div>
                     </div>
                   </motion.div>

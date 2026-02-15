@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useLocation } from 'react-router';
+import { useLocation, useNavigate } from 'react-router';
 import {
   ArrowRight,
   ArrowLeft,
@@ -44,6 +44,7 @@ const BASIS_POINTS = 10000;
 
 export default function CreateInvoice({ isDark, walletAddress, onBack }: CreateInvoiceProps) {
   const location = useLocation();
+  const navigate = useNavigate();
   const [currentStep, setCurrentStep] = useState(1);
   const [formData, setFormData] = useState({
     clientName: '',
@@ -163,12 +164,26 @@ export default function CreateInvoice({ isDark, walletAddress, onBack }: CreateI
       onSuccess: async (result) => {
         setCreatedTxHash(result.transactionHash ?? null);
         let onchainInvoiceId: number | undefined;
-        const receipt = result.receipt;
-        if (receipt?.logs?.length) {
-          const ourLog = receipt.logs.find(
-            (l: { address?: string }) => l.address?.toLowerCase() === INVOICE_PAYMENTS_ADDRESS.toLowerCase()
-          );
-          if (ourLog?.topics?.[1]) onchainInvoiceId = Number(BigInt(ourLog.topics[1]));
+        const receipt = result.receipt as { logs?: Array<{ address?: string; topics?: string[] }> } | undefined;
+        const logs = receipt?.logs ?? (receipt as { logEntries?: Array<{ address?: string; topics?: string[] }> })?.logEntries;
+        if (Array.isArray(logs) && logs.length > 0) {
+          const contractAddr = INVOICE_PAYMENTS_ADDRESS.toLowerCase();
+          for (const log of logs) {
+            const addr = (log as { address?: string }).address?.toLowerCase();
+            if (addr !== contractAddr) continue;
+            const topics = (log as { topics?: string[] }).topics;
+            if (topics && topics.length >= 2) {
+              try {
+                const id = Number(BigInt(topics[1]));
+                if (Number.isInteger(id) && id >= 0) {
+                  onchainInvoiceId = id;
+                  break;
+                }
+              } catch {
+                // ignore parse errors
+              }
+            }
+          }
         }
         setSubmitState('syncing');
         try {
@@ -191,6 +206,7 @@ export default function CreateInvoice({ isDark, walletAddress, onBack }: CreateI
           return;
         }
         setSubmitState('success');
+        navigate('/dashboard/invoices');
       },
       onError: (err) => {
         setSubmitError(err?.message ?? 'Transaction failed.');
