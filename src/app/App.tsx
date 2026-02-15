@@ -3,7 +3,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Routes, Route, useNavigate, useLocation } from 'react-router';
 import { motion, useScroll, useTransform, useInView, useMotionValue, useSpring } from 'motion/react';
 import { useModeAnimation } from 'react-theme-switch-animation';
-import { useActiveAccount, useConnectModal, useDisconnect } from 'thirdweb/react';
+import { useActiveAccount, useConnectModal, useDisconnect, AutoConnect, useIsAutoConnecting } from 'thirdweb/react';
 import { thirdwebClient, etherlinkShadownet } from '../client';
 import svgPaths from '../imports/svg-1rf4lkm0ba';
 import Dashboard from './components/Dashboard';
@@ -588,6 +588,7 @@ export default function App() {
   const account = useActiveAccount();
   const { connect } = useConnectModal();
   const { disconnect } = useDisconnect();
+  const isAutoConnecting = useIsAutoConnecting();
 
   const isWalletConnected = !!account?.address;
   const walletAddress = account?.address ?? '';
@@ -596,11 +597,15 @@ export default function App() {
   const isDashboard = location.pathname.startsWith('/dashboard');
   const showLanding = !isCheckout && !isDashboard;
 
-  // Give wallet a moment to rehydrate on reload so we don't redirect away from /dashboard/* too soon
+  // Wait for auto-connect to finish (or a max delay) before showing connect gate, so persisted wallet can restore
   useEffect(() => {
-    const t = setTimeout(() => setWalletRehydrated(true), 800);
+    if (!isAutoConnecting) {
+      setWalletRehydrated(true);
+      return;
+    }
+    const t = setTimeout(() => setWalletRehydrated(true), 2500);
     return () => clearTimeout(t);
-  }, []);
+  }, [isAutoConnecting]);
 
   // Use the theme animation hook
   const { ref: themeButtonRef, toggleSwitchTheme } = useModeAnimation({
@@ -646,6 +651,7 @@ export default function App() {
 
   return (
     <>
+      <AutoConnect client={thirdwebClient} chain={etherlinkShadownet} />
       <Routes>
         <Route path="/checkout" element={
           <CheckoutPage isDark={isDark} toggleTheme={toggleTheme} />
@@ -656,7 +662,6 @@ export default function App() {
               isDark={isDark}
               toggleTheme={toggleTheme}
               walletAddress={walletAddress}
-              onDisconnect={handleDisconnect}
             />
           ) : !walletRehydrated ? (
             <div className={`min-h-screen flex items-center justify-center ${isDark ? 'bg-[#0d0818]' : 'bg-gray-50'}`}>
@@ -701,27 +706,7 @@ export default function App() {
               transition={{ type: "spring", stiffness: 400, damping: 10 }}
               onClick={() => navigate('/')}
             >
-              <div className="relative">
-                <motion.div 
-                  className="w-8 h-8 sm:w-10 sm:h-10 bg-gradient-to-br from-[#FF1CF7] via-[#B967FF] to-[#00F0FF] rounded-lg sm:rounded-xl flex items-center justify-center shadow-lg shadow-[#FF1CF7]/25"
-                  animate={{
-                    boxShadow: [
-                      '0 0 20px rgba(255,28,247,0.25)',
-                      '0 0 40px rgba(255,28,247,0.5)',
-                      '0 0 20px rgba(255,28,247,0.25)',
-                    ],
-                  }}
-                  transition={{ duration: 2, repeat: Infinity }}
-                >
-                  <Link2 className={`w-4 h-4 sm:w-5 sm:h-5 ${isDark ? 'text-black' : 'text-white'}`} />
-                </motion.div>
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 3, repeat: Infinity, ease: "linear" }}
-                >
-                  <Sparkles className="absolute -top-1 -right-1 w-3 h-3 sm:w-4 sm:h-4 text-[#00F0FF]" />
-                </motion.div>
-              </div>
+              <img src="/favicon.svg" alt="StableLink" className="w-14 h-14 sm:w-16 sm:h-16 rounded-lg sm:rounded-xl object-contain flex-shrink-0" />
               <span className={`text-lg sm:text-xl md:text-2xl font-bold tracking-tight transition-all duration-300 ${
                 isDark 
                   ? 'bg-gradient-to-r from-white to-white/80 bg-clip-text text-transparent' 
@@ -1459,9 +1444,7 @@ export default function App() {
               className="flex items-center justify-center gap-3 group"
               whileHover={{ scale: 1.05 }}
             >
-              <div className="w-10 h-10 bg-gradient-to-br from-[#FF1CF7] via-[#B967FF] to-[#00F0FF] rounded-xl flex items-center justify-center shadow-lg shadow-[#FF1CF7]/25">
-                <Link2 className={`w-5 h-5 ${isDark ? 'text-black' : 'text-white'}`} />
-              </div>
+              <img src="/favicon.svg" alt="StableLink" className="w-16 h-16 rounded-xl object-contain flex-shrink-0" />
               <span className={`text-2xl font-bold ${
                 isDark 
                   ? 'bg-gradient-to-r from-white to-white/80 bg-clip-text text-transparent' 

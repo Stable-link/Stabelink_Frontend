@@ -1,28 +1,28 @@
-import { useState } from 'react';
-import { 
+import { useState, useEffect } from 'react';
+import {
   ArrowLeft,
   CheckCircle2,
   AlertCircle,
   XCircle,
   TrendingUp,
-  TrendingDown,
   Send,
   Download,
   FileText,
   DollarSign,
   Clock,
-  Filter,
   Search,
   Calendar,
   ArrowUpRight,
   ArrowDownRight,
   Eye,
-  ExternalLink
+  ExternalLink,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { listInvoices, listWithdrawals } from '../../api';
 
 interface ActivityPageProps {
   isDark: boolean;
+  walletAddress: string;
   onBack: () => void;
 }
 
@@ -42,207 +42,122 @@ interface Activity {
   invoiceId?: string;
 }
 
-type FilterType = 'All' | 'Payments' | 'Withdrawals' | 'Invoices' | 'System';
+type FilterType = 'All' | 'Payments' | 'Withdrawals' | 'Invoices';
 
-export default function ActivityPage({ isDark, onBack }: ActivityPageProps) {
+function formatTimeAgo(date: Date): string {
+  const sec = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (sec < 60) return 'Just now';
+  if (sec < 3600) return `${Math.floor(sec / 60)} min ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)} hours ago`;
+  if (sec < 604800) return `${Math.floor(sec / 86400)} days ago`;
+  return date.toLocaleDateString();
+}
+
+export default function ActivityPage({ isDark, walletAddress, onBack }: ActivityPageProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<FilterType>('All');
   const [showDatePicker, setShowDatePicker] = useState(false);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  // Styles
   const textPrimary = isDark ? 'text-white' : 'text-gray-900';
   const textSecondary = isDark ? 'text-gray-400' : 'text-gray-600';
   const textMuted = isDark ? 'text-gray-500' : 'text-gray-500';
-  
-  const glassCard = isDark 
-    ? 'bg-gradient-to-br from-[#1a1a24]/90 to-[#16161f]/90 backdrop-blur-2xl border border-white/10' 
+  const glassCard = isDark
+    ? 'bg-gradient-to-br from-[#1a1a24]/90 to-[#16161f]/90 backdrop-blur-2xl border border-white/10'
     : 'bg-white/90 backdrop-blur-2xl border border-gray-200/50';
 
-  // Mock Activity Data
-  const activities: Activity[] = [
-    {
-      id: '1',
-      type: 'payment',
-      title: 'Payment Received',
-      description: 'Invoice #INV-2026-0245 paid by Acme Corporation',
-      amount: '+$5,240.00',
-      time: '2 hours ago',
-      date: 'Feb 12, 2026',
-      status: 'success',
-      icon: CheckCircle2,
-      color: 'text-emerald-400',
-      bgColor: 'bg-emerald-400/10',
-      txHash: '0x7a8f9c2d...4b3e1a5f',
-      invoiceId: 'INV-2026-0245'
-    },
-    {
-      id: '2',
-      type: 'withdrawal',
-      title: 'Withdrawal Completed',
-      description: '$5,000.00 transferred to your wallet successfully',
-      amount: '-$5,000.00',
-      time: '5 hours ago',
-      date: 'Feb 12, 2026',
-      status: 'success',
-      icon: ArrowUpRight,
-      color: 'text-blue-400',
-      bgColor: 'bg-blue-400/10',
-      txHash: '0x9b7c3a1e...2f5d8c4a'
-    },
-    {
-      id: '3',
-      type: 'invoice',
-      title: 'Invoice Created',
-      description: 'New invoice created for TechStart Solutions',
-      amount: '$3,850.00',
-      time: '1 day ago',
-      date: 'Feb 11, 2026',
-      status: 'info',
-      icon: FileText,
-      color: 'text-purple-400',
-      bgColor: 'bg-purple-400/10',
-      invoiceId: 'INV-2026-0244'
-    },
-    {
-      id: '4',
-      type: 'payment',
-      title: 'Payment Pending',
-      description: 'Invoice #INV-2026-0243 awaiting confirmation',
-      amount: '$2,150.00',
-      time: '1 day ago',
-      date: 'Feb 11, 2026',
-      status: 'pending',
-      icon: Clock,
-      color: 'text-yellow-400',
-      bgColor: 'bg-yellow-400/10',
-      invoiceId: 'INV-2026-0243'
-    },
-    {
-      id: '5',
-      type: 'system',
-      title: 'Revenue Split Complete',
-      description: 'Revenue distributed to 3 partners automatically',
-      amount: '$8,200.00',
-      time: '2 days ago',
-      date: 'Feb 10, 2026',
-      status: 'info',
-      icon: TrendingUp,
-      color: 'text-purple-400',
-      bgColor: 'bg-purple-400/10'
-    },
-    {
-      id: '6',
-      type: 'payment',
-      title: 'Payment Failed',
-      description: 'Payment attempt failed for Invoice #INV-2026-0240',
-      amount: '$1,890.00',
-      time: '3 days ago',
-      date: 'Feb 09, 2026',
-      status: 'failed',
-      icon: XCircle,
-      color: 'text-red-400',
-      bgColor: 'bg-red-400/10',
-      invoiceId: 'INV-2026-0240'
-    },
-    {
-      id: '7',
-      type: 'payment',
-      title: 'Payment Received',
-      description: 'Invoice #INV-2026-0239 paid by Design Studio Pro',
-      amount: '+$4,500.00',
-      time: '3 days ago',
-      date: 'Feb 09, 2026',
-      status: 'success',
-      icon: CheckCircle2,
-      color: 'text-emerald-400',
-      bgColor: 'bg-emerald-400/10',
-      txHash: '0x3d5a7f9b...6c2e8a1d',
-      invoiceId: 'INV-2026-0239'
-    },
-    {
-      id: '8',
-      type: 'withdrawal',
-      title: 'Withdrawal Initiated',
-      description: '$3,200.00 withdrawal request submitted',
-      amount: '-$3,200.00',
-      time: '4 days ago',
-      date: 'Feb 08, 2026',
-      status: 'pending',
-      icon: Download,
-      color: 'text-yellow-400',
-      bgColor: 'bg-yellow-400/10'
-    },
-    {
-      id: '9',
-      type: 'invoice',
-      title: 'Invoice Created',
-      description: 'New invoice created for Marketing Agency',
-      amount: '$2,750.00',
-      time: '5 days ago',
-      date: 'Feb 07, 2026',
-      status: 'info',
-      icon: FileText,
-      color: 'text-purple-400',
-      bgColor: 'bg-purple-400/10',
-      invoiceId: 'INV-2026-0238'
-    },
-    {
-      id: '10',
-      type: 'payment',
-      title: 'Payment Received',
-      description: 'Invoice #INV-2026-0237 paid by Global Solutions',
-      amount: '+$6,100.00',
-      time: '6 days ago',
-      date: 'Feb 06, 2026',
-      status: 'success',
-      icon: CheckCircle2,
-      color: 'text-emerald-400',
-      bgColor: 'bg-emerald-400/10',
-      txHash: '0x8c4b2a9f...1e7d3c5b',
-      invoiceId: 'INV-2026-0237'
-    },
-    {
-      id: '11',
-      type: 'system',
-      title: 'API Key Generated',
-      description: 'New API key created for production environment',
-      amount: '',
-      time: '1 week ago',
-      date: 'Feb 05, 2026',
-      status: 'info',
-      icon: AlertCircle,
-      color: 'text-blue-400',
-      bgColor: 'bg-blue-400/10'
-    },
-    {
-      id: '12',
-      type: 'payment',
-      title: 'Payment Received',
-      description: 'Invoice #INV-2026-0236 paid by Startup Inc',
-      amount: '+$3,400.00',
-      time: '1 week ago',
-      date: 'Feb 04, 2026',
-      status: 'success',
-      icon: CheckCircle2,
-      color: 'text-emerald-400',
-      bgColor: 'bg-emerald-400/10',
-      txHash: '0x2f9b5c7a...4e1d8a6c',
-      invoiceId: 'INV-2026-0236'
-    }
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    Promise.all([
+      listInvoices().then((r) => r.invoices),
+      walletAddress?.trim() ? listWithdrawals(walletAddress).then((r) => r.withdrawals) : Promise.resolve([]),
+    ])
+      .then(([invoices, withdrawals]) => {
+        if (cancelled) return;
+        const list: Activity[] = [];
+        invoices
+          .filter((i) => i.status === 'paid')
+          .forEach((i) => {
+            const paidAt = i.paid_at ? new Date(i.paid_at) : new Date(i.created_at);
+            list.push({
+              id: `pay-${i.id}`,
+              type: 'payment',
+              title: 'Payment Received',
+              description: `Invoice paid by ${i.client_name ?? 'client'}`,
+              amount: `+$${Number(i.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+              time: formatTimeAgo(paidAt),
+              date: paidAt.toLocaleDateString('en-US'),
+              status: 'success',
+              icon: CheckCircle2,
+              color: 'text-emerald-400',
+              bgColor: 'bg-emerald-400/10',
+              txHash: i.tx_hash ?? undefined,
+              invoiceId: i.id,
+            });
+          });
+        withdrawals.forEach((w) => {
+          const created = new Date(w.created_at);
+          const amt = (Number(w.amount_raw) / 1e6).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          list.push({
+            id: w.id,
+            type: 'withdrawal',
+            title: 'Withdrawal Completed',
+            description: `$${amt} transferred`,
+            amount: `-$${amt}`,
+            time: formatTimeAgo(created),
+            date: created.toLocaleDateString('en-US'),
+            status: 'success',
+            icon: ArrowUpRight,
+            color: 'text-blue-400',
+            bgColor: 'bg-blue-400/10',
+            txHash: w.tx_hash,
+          });
+        });
+        invoices.forEach((i) => {
+          if (i.status === 'paid') return;
+          const created = i.created_at ? new Date(i.created_at) : new Date();
+          list.push({
+            id: `inv-${i.id}`,
+            type: 'invoice',
+            title: 'Invoice Created',
+            description: `${i.client_name ?? 'Invoice'} • $${Number(i.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}`,
+            amount: `$${Number(i.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+            time: formatTimeAgo(created),
+            date: created.toLocaleDateString('en-US'),
+            status: i.status === 'deployed' ? 'pending' : 'info',
+            icon: FileText,
+            color: 'text-purple-400',
+            bgColor: 'bg-purple-400/10',
+            invoiceId: i.id,
+          });
+        });
+        list.sort((a, b) => {
+          const getOrder = (x: Activity) => (x.time.includes('min') ? 0 : x.time.includes('hour') ? 1 : 2);
+          return getOrder(a) - getOrder(b);
+        });
+        setActivities(list);
+      })
+      .catch(() => setActivities([]))
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [walletAddress]);
 
-  const filters: FilterType[] = ['All', 'Payments', 'Withdrawals', 'Invoices', 'System'];
+  const filters: FilterType[] = ['All', 'Payments', 'Withdrawals', 'Invoices'];
 
-  const filteredActivities = activities.filter(activity => {
-    const matchesSearch = activity.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         activity.description.toLowerCase().includes(searchQuery.toLowerCase());
-    
+  const filteredActivities = activities.filter((activity) => {
+    const matchesSearch =
+      activity.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      activity.description.toLowerCase().includes(searchQuery.toLowerCase());
     if (activeFilter === 'All') return matchesSearch;
     if (activeFilter === 'Payments') return matchesSearch && activity.type === 'payment';
     if (activeFilter === 'Withdrawals') return matchesSearch && activity.type === 'withdrawal';
     if (activeFilter === 'Invoices') return matchesSearch && activity.type === 'invoice';
-    if (activeFilter === 'System') return matchesSearch && activity.type === 'system';
-    
     return matchesSearch;
   });
 
@@ -351,7 +266,11 @@ export default function ActivityPage({ isDark, onBack }: ActivityPageProps) {
 
         {/* Activity Timeline */}
         <div className={`${glassCard} rounded-2xl shadow-2xl overflow-hidden`}>
-          {filteredActivities.length > 0 ? (
+          {loading ? (
+            <div className="p-12 text-center">
+              <p className={`${textSecondary} font-semibold`}>Loading activity...</p>
+            </div>
+          ) : filteredActivities.length > 0 ? (
             <div className="divide-y divide-white/5">
               {filteredActivities.map((activity, index) => (
                 <motion.div

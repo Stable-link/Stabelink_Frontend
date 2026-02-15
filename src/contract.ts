@@ -40,6 +40,13 @@ export const INVOICE_PAYMENTS_ABI = [
   },
   {
     type: "function",
+    name: "payInvoice",
+    inputs: [{ name: "invoiceId", type: "uint256", internalType: "uint256" }],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
     name: "withdraw",
     inputs: [
       { name: "token", type: "address", internalType: "address" },
@@ -47,6 +54,19 @@ export const INVOICE_PAYMENTS_ABI = [
     ],
     outputs: [],
     stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
+    name: "invoices",
+    inputs: [{ name: "", type: "uint256", internalType: "uint256" }],
+    outputs: [
+      { name: "creator", type: "address", internalType: "address" },
+      { name: "token", type: "address", internalType: "address" },
+      { name: "amount", type: "uint256", internalType: "uint256" },
+      { name: "paid", type: "bool", internalType: "bool" },
+      { name: "cancelled", type: "bool", internalType: "bool" },
+    ],
+    stateMutability: "view",
   },
   {
     type: "function",
@@ -58,6 +78,17 @@ export const INVOICE_PAYMENTS_ABI = [
     outputs: [{ name: "", type: "uint256", internalType: "uint256" }],
     stateMutability: "view",
   },
+  // Custom errors (so revert messages decode instead of "signature not found")
+  { type: "error", name: "InvalidAmount", inputs: [] },
+  { type: "error", name: "InvalidToken", inputs: [] },
+  { type: "error", name: "InvalidSplits", inputs: [] },
+  { type: "error", name: "InvalidSplitSum", inputs: [] },
+  { type: "error", name: "InvoiceNotFound", inputs: [] },
+  { type: "error", name: "AlreadyPaid", inputs: [] },
+  { type: "error", name: "Cancelled", inputs: [] },
+  { type: "error", name: "Unauthorized", inputs: [] },
+  { type: "error", name: "InsufficientBalance", inputs: [] },
+  { type: "error", name: "ZeroAmount", inputs: [] },
 ] as const;
 
 // Faucet ABI
@@ -95,7 +126,7 @@ export const FAUCET_ABI = [
   },
 ] as const;
 
-// ERC20 ABI for checking token balance
+// ERC20 ABI for balance and approve (payInvoice needs payer to approve contract)
 export const ERC20_ABI = [
   {
     type: "function",
@@ -110,5 +141,15 @@ export const ERC20_ABI = [
     inputs: [],
     outputs: [{ name: "", type: "uint8" }],
     stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "approve",
+    inputs: [
+      { name: "spender", type: "address", internalType: "address" },
+      { name: "amount", type: "uint256", internalType: "uint256" },
+    ],
+    outputs: [{ name: "", type: "bool", internalType: "bool" }],
+    stateMutability: "nonpayable",
   },
 ] as const;

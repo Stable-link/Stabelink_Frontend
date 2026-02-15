@@ -1,6 +1,18 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { useSearchParams } from 'react-router';
 import { useModeAnimation } from 'react-theme-switch-animation';
-import { 
+import { useActiveAccount, useConnectModal, useSendTransaction, useSwitchActiveWalletChain } from 'thirdweb/react';
+import { getContract, prepareContractCall } from 'thirdweb';
+import { etherlinkShadownet } from '../../client';
+import { thirdwebClient } from '../../client';
+import { getPublicInvoice, type PublicInvoice } from '../../api';
+import {
+  INVOICE_PAYMENTS_ADDRESS,
+  INVOICE_PAYMENTS_ABI,
+  USDC_ADDRESS,
+  ERC20_ABI,
+} from '../../contract';
+import {
   Check,
   CheckCircle2,
   XCircle,
@@ -11,16 +23,38 @@ import {
   Wallet,
   ExternalLink,
   Copy,
-  Info,
-  ChevronRight,
   Sun,
   Moon,
   ArrowRight,
   Lock,
-  Globe
+  Globe,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import svgPaths from '../../imports/svg-1rf4lkm0ba';
+
+const USDC_DECIMALS = 6;
+const EXPLORER_TX_URL = 'https://shadownet.explorer.etherlink.com/tx';
+
+function friendlyPayError(raw: string): string {
+  if (!raw || typeof raw !== 'string') return 'Payment failed. Try approving USDC spend first, then Pay again.';
+  const s = raw.toLowerCase();
+  if (s.includes('alreadypaid')) return 'This invoice has already been paid.';
+  if (s.includes('cancelled')) return 'This invoice was cancelled.';
+  if (s.includes('invoicenotfound')) return 'Invoice not found on chain.';
+  // ABI decode errors, unknown selectors, allowance/balance failures
+  if (
+    s.includes('encoded error') ||
+    s.includes('not found on abi') ||
+    s.includes('signature') && s.includes('0x') ||
+    s.includes('insufficient') ||
+    s.includes('allowance') ||
+    s.includes('decodeerrorresult') ||
+    s.includes('viem')
+  ) {
+    return 'Payment failed. First approve USDC spend (wallet will ask once), then click Pay again. Ensure you have enough USDC.';
+  }
+  return raw;
+}
 
 interface CheckoutPageProps {
   isDark: boolean;
@@ -79,67 +113,167 @@ function LooperBg({ isDark }: { isDark: boolean }) {
 }
 
 export default function CheckoutPage({ isDark, toggleTheme }: CheckoutPageProps) {
+  const [searchParams] = useSearchParams();
+  const invoiceIdFromUrl = searchParams.get('id');
+
+  const [invoice, setInvoice] = useState<PublicInvoice | null>(null);
+  const [invoiceError, setInvoiceError] = useState<string | null>(null);
+  const [invoiceLoading, setInvoiceLoading] = useState(true);
   const [paymentState, setPaymentState] = useState<PaymentState>('disconnected');
   const [isCorrectNetwork, setIsCorrectNetwork] = useState(true);
   const [copiedAddress, setCopiedAddress] = useState(false);
-  const [walletBalance, setWalletBalance] = useState('1,234.56');
+  const [walletBalance, setWalletBalance] = useState<string>('');
   const [transactionHash, setTransactionHash] = useState('');
-  
-  // Use the theme animation hook
+  const [payError, setPayError] = useState<string | null>(null);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  const [isSwitching, setIsSwitching] = useState(false);
+
+  const account = useActiveAccount();
+  const { connect: openConnectModal } = useConnectModal();
+  const { mutate: sendTransaction, isPending: isTxPending } = useSendTransaction();
+  const switchChain = useSwitchActiveWalletChain();
+
+  const chainId = account?.chain?.id;
+  const isEtherlink = Number(chainId) === 127823;
+
+  useEffect(() => {
+    if (!invoiceIdFromUrl) {
+      setInvoiceError('No invoice specified. Use a payment link from the merchant.');
+      setInvoiceLoading(false);
+      return;
+    }
+    setInvoiceLoading(true);
+    setInvoiceError(null);
+    getPublicInvoice(invoiceIdFromUrl)
+      .then((data) => {
+        setInvoice(data);
+        setInvoiceError(null);
+      })
+      .catch((e) => {
+        setInvoice(null);
+        setInvoiceError(e instanceof Error ? e.message : 'Invoice not found');
+      })
+      .finally(() => setInvoiceLoading(false));
+  }, [invoiceIdFromUrl]);
+
+  useEffect(() => {
+    if (account) {
+      setPaymentState('connected');
+      setIsCorrectNetwork(Number(account.chain?.id) === 127823);
+    } else {
+      setPaymentState('disconnected');
+    }
+  }, [account]);
+
   const { ref: themeButtonRef, toggleSwitchTheme } = useModeAnimation({
     duration: 600,
     animationType: 'circle' as any,
     isDarkMode: isDark,
-    onDarkModeChange: () => {
-      toggleTheme();
-    }
+    onDarkModeChange: () => toggleTheme(),
   });
-
-  // Mock invoice data
-  const invoiceData = {
-    merchantName: 'Acme Corporation',
-    invoiceId: 'INV-2026-001',
-    description: 'Web design services for Q1 2026',
-    dueDate: 'February 28, 2026',
-    amount: '2,500.00',
-    token: 'USDC',
-    networkFee: '0.12',
-    merchantAddress: '0x742d35Cc6634C0532925a3b844Bc9e7595f0Aa4f',
-    merchantVerified: true
-  };
 
   const textPrimary = isDark ? 'text-white' : 'text-gray-900';
   const textSecondary = isDark ? 'text-gray-400' : 'text-gray-600';
   const textMuted = isDark ? 'text-gray-500' : 'text-gray-500';
 
-  const glassCard = isDark 
-    ? 'bg-gradient-to-br from-[#1a1a24]/95 to-[#16161f]/95 backdrop-blur-2xl border border-white/10' 
+  const glassCard = isDark
+    ? 'bg-gradient-to-br from-[#1a1a24]/95 to-[#16161f]/95 backdrop-blur-2xl border border-white/10'
     : 'bg-white/95 backdrop-blur-2xl border border-gray-200/50';
 
+  const invoiceData = invoice
+    ? {
+        merchantName: invoice.client_name || 'Merchant',
+        invoiceId: `INV-${invoice.onchain_invoice_id}`,
+        description: 'Stablecoin invoice payment',
+        dueDate: '—',
+        amount: Number(invoice.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        amountNum: Number(invoice.amount),
+        token: invoice.token,
+        networkFee: '~0.01',
+        networkFeeNum: 0.01,
+        merchantAddress: invoice.creator_wallet,
+        merchantVerified: true,
+      }
+    : null;
+
   const handleConnectWallet = () => {
-    setPaymentState('loading');
-    setTimeout(() => {
-      setPaymentState('connected');
-    }, 1500);
+    openConnectModal({ client: thirdwebClient, chain: etherlinkShadownet });
   };
 
   const handlePay = () => {
+    if (!invoice || !account || !USDC_ADDRESS?.startsWith('0x')) {
+      setPayError('Missing invoice, wallet, or USDC address.');
+      return;
+    }
+    setPayError(null);
     setPaymentState('processing');
-    setTimeout(() => {
-      setTransactionHash('0x7a8f9c2d...4b3e1a5f');
-      setPaymentState('success');
-    }, 3000);
+    const amountRaw = BigInt(Math.round(Number(invoice.amount) * 10 ** USDC_DECIMALS));
+    const tokenContract = getContract({
+      client: thirdwebClient,
+      chain: etherlinkShadownet,
+      address: USDC_ADDRESS as `0x${string}`,
+      abi: ERC20_ABI,
+    });
+    const paymentsContract = getContract({
+      client: thirdwebClient,
+      chain: etherlinkShadownet,
+      address: INVOICE_PAYMENTS_ADDRESS as `0x${string}`,
+      abi: INVOICE_PAYMENTS_ABI,
+    });
+    const approveCall = prepareContractCall({
+      contract: tokenContract,
+      method: 'function approve(address spender, uint256 amount) returns (bool)',
+      params: [INVOICE_PAYMENTS_ADDRESS as `0x${string}`, amountRaw],
+    });
+    sendTransaction(approveCall, {
+      onSuccess: (result) => {
+        const payCall = prepareContractCall({
+          contract: paymentsContract,
+          method: 'function payInvoice(uint256 invoiceId)',
+          params: [BigInt(invoice.onchain_invoice_id)],
+        });
+        sendTransaction(payCall, {
+          onSuccess: (payResult) => {
+            const hash = payResult.transactionHash ?? payResult.receipt?.transactionHash ?? '';
+            setTransactionHash(hash.startsWith('0x') ? hash : `0x${hash}`);
+            setPaymentState('success');
+          },
+          onError: (err) => {
+            const msg = err?.message ?? 'Payment failed';
+            setPayError(friendlyPayError(msg));
+            setPaymentState('failed');
+          },
+        });
+      },
+      onError: (err) => {
+        const msg = err?.message ?? 'Approval failed';
+        setPayError(friendlyPayError(msg));
+        setPaymentState('failed');
+      },
+    });
   };
 
   const handleRetry = () => {
+    setPayError(null);
     setPaymentState('connected');
   };
 
-  const handleSwitchNetwork = () => {
-    setTimeout(() => {
+  const handleSwitchNetwork = async () => {
+    setSwitchError(null);
+    setIsSwitching(true);
+    try {
+      await switchChain(etherlinkShadownet);
       setIsCorrectNetwork(true);
-    }, 1500);
+    } catch (e) {
+      setSwitchError(e instanceof Error ? e.message : 'Failed to switch network');
+    } finally {
+      setIsSwitching(false);
+    }
   };
+
+  const explorerTxUrl = transactionHash
+    ? `${EXPLORER_TX_URL}/${transactionHash.startsWith('0x') ? transactionHash : '0x' + transactionHash}`
+    : '';
 
   const copyAddress = async (address: string) => {
     try {
@@ -245,7 +379,25 @@ export default function CheckoutPage({ isDark, toggleTheme }: CheckoutPageProps)
               transition={{ duration: 0.5 }}
               className={`${glassCard} rounded-3xl shadow-2xl overflow-hidden`}
             >
-              {/* Success State */}
+              {invoiceLoading ? (
+                <div className="p-12 flex flex-col items-center justify-center gap-4">
+                  <Loader2 className={`w-12 h-12 animate-spin ${isDark ? 'text-[#FF1CF7]' : 'text-[#B967FF]'}`} />
+                  <p className={textSecondary}>Loading invoice…</p>
+                </div>
+              ) : invoiceError || !invoice ? (
+                <div className="p-12 text-center">
+                  <AlertCircle className={`w-14 h-14 mx-auto mb-4 ${isDark ? 'text-amber-400' : 'text-amber-500'}`} />
+                  <h2 className={`text-xl font-bold ${textPrimary} mb-2`}>Cannot load invoice</h2>
+                  <p className={`text-sm ${textSecondary}`}>{invoiceError || 'No invoice specified.'}</p>
+                  <p className={`text-xs ${textMuted} mt-4`}>Use the payment link shared by the merchant (e.g. /checkout?id=...).</p>
+                </div>
+              ) : invoice.status === 'paid' ? (
+                <div className="p-12 text-center">
+                  <CheckCircle2 className="w-14 h-14 mx-auto mb-4 text-emerald-400" />
+                  <h2 className={`text-xl font-bold ${textPrimary} mb-2`}>Already paid</h2>
+                  <p className={`text-sm ${textSecondary}`}>This invoice has already been paid.</p>
+                </div>
+              ) : (
               <AnimatePresence mode="wait">
                 {paymentState === 'success' ? (
                   <motion.div
@@ -273,25 +425,23 @@ export default function CheckoutPage({ isDark, toggleTheme }: CheckoutPageProps)
 
                     <div className={`p-6 rounded-2xl ${isDark ? 'bg-white/5 border border-white/10' : 'bg-gray-50 border border-gray-200'} mb-8`}>
                       <div className="space-y-4">
-                        <div className="flex items-center justify-between">
-                          <span className={`text-sm ${textMuted}`}>Transaction Hash</span>
+                        <div className="flex items-center justify-between flex-wrap gap-2">
+                          <span className={`text-sm ${textMuted}`}>Transaction</span>
                           <div className="flex items-center gap-2">
-                            <span className={`text-sm font-mono font-semibold ${textPrimary}`}>
-                              {transactionHash}
+                            <span className={`text-sm font-mono font-semibold ${textPrimary} truncate max-w-[180px]`}>
+                              {transactionHash ? `${transactionHash.slice(0, 10)}...${transactionHash.slice(-8)}` : ''}
                             </span>
-                            <motion.button
-                              whileHover={{ scale: 1.1 }}
-                              whileTap={{ scale: 0.9 }}
-                              className={`p-1.5 rounded-lg ${isDark ? 'hover:bg-white/5' : 'hover:bg-gray-100'} transition-colors`}
-                            >
-                              <ExternalLink className={`w-4 h-4 ${textSecondary}`} />
-                            </motion.button>
+                            {explorerTxUrl && (
+                              <a href={explorerTxUrl} target="_blank" rel="noreferrer" className={`p-1.5 rounded-lg ${isDark ? 'hover:bg-white/5' : 'hover:bg-gray-100'} transition-colors`} title="View on explorer">
+                                <ExternalLink className={`w-4 h-4 ${textSecondary}`} />
+                              </a>
+                            )}
                           </div>
                         </div>
                         <div className="flex items-center justify-between">
                           <span className={`text-sm ${textMuted}`}>Amount Paid</span>
                           <span className={`text-lg font-bold ${textPrimary}`}>
-                            ${invoiceData.amount} {invoiceData.token}
+                            ${invoiceData?.amount} {invoiceData?.token}
                           </span>
                         </div>
                       </div>
@@ -317,7 +467,7 @@ export default function CheckoutPage({ isDark, toggleTheme }: CheckoutPageProps)
                       Payment Failed
                     </h2>
                     <p className={`text-base ${textSecondary} mb-8`}>
-                      The transaction was rejected or failed
+                      {payError || 'The transaction was rejected or failed.'}
                     </p>
 
                     <motion.button
@@ -421,13 +571,13 @@ export default function CheckoutPage({ isDark, toggleTheme }: CheckoutPageProps)
                               <Zap className="w-3 h-3 text-yellow-400" />
                             </div>
                             <span className={`text-sm font-semibold ${textSecondary}`}>
-                              ~${invoiceData.networkFee}
+                              ~${invoiceData.networkFeeNum.toFixed(2)}
                             </span>
                           </div>
                           <div className="flex items-center justify-between pt-1">
                             <span className={`text-base font-bold ${textPrimary}`}>Total</span>
                             <span className={`text-xl font-bold ${textPrimary}`}>
-                              ${(parseFloat(invoiceData.amount) + parseFloat(invoiceData.networkFee)).toFixed(2)}
+                              ${(invoiceData.amountNum + invoiceData.networkFeeNum).toFixed(2)}
                             </span>
                           </div>
                         </div>
@@ -496,27 +646,57 @@ export default function CheckoutPage({ isDark, toggleTheme }: CheckoutPageProps)
                         )}
 
                         {paymentState === 'connected' && !isCorrectNetwork && (
-                          <motion.button
-                            whileHover={{ scale: 1.02 }}
-                            whileTap={{ scale: 0.98 }}
-                            onClick={handleSwitchNetwork}
-                            className="w-full flex items-center justify-center gap-3 px-6 py-5 rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-400 font-bold text-white shadow-xl shadow-yellow-400/40 hover:shadow-yellow-400/60 transition-all text-base"
-                          >
-                            <Globe className="w-5 h-5" />
-                            Switch to Etherlink
-                          </motion.button>
+                          <>
+                            <motion.button
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                              onClick={handleSwitchNetwork}
+                              disabled={isSwitching}
+                              className="w-full flex items-center justify-center gap-3 px-6 py-5 rounded-2xl bg-gradient-to-r from-yellow-400 to-orange-400 font-bold text-white shadow-xl shadow-yellow-400/40 hover:shadow-yellow-400/60 transition-all text-base disabled:opacity-70 disabled:pointer-events-none"
+                            >
+                              {isSwitching ? (
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                              ) : (
+                                <>
+                                  <Globe className="w-5 h-5" />
+                                  Switch to Etherlink ShadowNet
+                                </>
+                              )}
+                            </motion.button>
+                            {switchError && (
+                              <p className={`text-sm ${isDark ? 'text-red-400' : 'text-red-600'}`}>{switchError}</p>
+                            )}
+                            <p className={`text-xs ${textMuted}`}>
+                              If MetaMask is already on Etherlink ShadowNet, try refreshing this page.
+                            </p>
+                          </>
                         )}
 
                         {paymentState === 'connected' && isCorrectNetwork && (
-                          <motion.button
-                            whileHover={{ scale: 1.02 }}
-                            whileTap={{ scale: 0.98 }}
-                            onClick={handlePay}
-                            className="w-full flex items-center justify-center gap-3 px-6 py-5 rounded-2xl bg-gradient-to-r from-[#FF1CF7] to-[#B967FF] font-bold text-white shadow-xl shadow-[#FF1CF7]/40 hover:shadow-[#FF1CF7]/60 transition-all text-base"
-                          >
-                            Pay ${invoiceData.amount} {invoiceData.token}
-                            <ArrowRight className="w-5 h-5" />
-                          </motion.button>
+                          <>
+                            <p className={`text-xs ${textMuted} mb-2`}>
+                              You may see two wallet prompts: first Approve USDC, then Pay.
+                            </p>
+                            <motion.button
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                              onClick={handlePay}
+                              disabled={isTxPending}
+                              className="w-full flex items-center justify-center gap-3 px-6 py-5 rounded-2xl bg-gradient-to-r from-[#FF1CF7] to-[#B967FF] font-bold text-white shadow-xl shadow-[#FF1CF7]/40 hover:shadow-[#FF1CF7]/60 transition-all text-base disabled:opacity-70 disabled:pointer-events-none"
+                            >
+                              {isTxPending ? (
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                              ) : (
+                                <>
+                                  Pay ${invoiceData?.amount} {invoiceData?.token}
+                                  <ArrowRight className="w-5 h-5" />
+                                </>
+                              )}
+                            </motion.button>
+                            {payError && (
+                              <p className={`text-sm ${isDark ? 'text-red-400' : 'text-red-600'}`}>{payError}</p>
+                            )}
+                          </>
                         )}
 
                         {paymentState === 'processing' && (
@@ -539,10 +719,12 @@ export default function CheckoutPage({ isDark, toggleTheme }: CheckoutPageProps)
                   </motion.div>
                 )}
               </AnimatePresence>
+              )}
             </motion.div>
           </div>
 
-          {/* Right Panel - Merchant & Platform Info */}
+          {/* Right Panel - Merchant & Platform Info (only when invoice loaded) */}
+          {invoiceData && (
           <motion.aside
             initial={{ opacity: 0, x: 20 }}
             animate={{ opacity: 1, x: 0 }}
@@ -655,6 +837,7 @@ export default function CheckoutPage({ isDark, toggleTheme }: CheckoutPageProps)
               </p>
             </div>
           </motion.aside>
+          )}
         </div>
       </main>
     </div>

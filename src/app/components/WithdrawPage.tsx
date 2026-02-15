@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   Wallet,
@@ -28,6 +28,7 @@ import { prepareContractCall } from 'thirdweb';
 import { useReadContract, useSendTransaction } from 'thirdweb/react';
 import { etherlinkShadownet, thirdwebClient } from '../../client';
 import { INVOICE_PAYMENTS_ADDRESS, INVOICE_PAYMENTS_ABI, USDC_ADDRESS } from '../../contract';
+import { listWithdrawals } from '../../api';
 
 interface WithdrawPageProps {
   isDark: boolean;
@@ -59,6 +60,7 @@ export default function WithdrawPage({ isDark, walletAddress, onBack }: Withdraw
   const [transactionHash, setTransactionHash] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const [withdrawError, setWithdrawError] = useState<string | null>(null);
+  const [withdrawalHistory, setWithdrawalHistory] = useState<WithdrawalHistory[]>([]);
 
   const contract = getContract({
     client: thirdwebClient,
@@ -76,50 +78,35 @@ export default function WithdrawPage({ isDark, walletAddress, onBack }: Withdraw
     balanceWei !== undefined && balanceWei !== null
       ? (Number(balanceWei) / 10 ** USDC_DECIMALS).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
       : null;
-  const availableBalance = balanceFormatted ?? '—';
-  const pendingSettlement = '—';
-  const platformFees = '—';
+  const availableBalance = balanceFormatted ?? '0.00';
+  const pendingSettlement = '0.00';
+  const platformFees = '0.00';
   const networkFee = '~0.12';
   const { mutate: sendTransaction } = useSendTransaction();
 
-  const withdrawalHistory: WithdrawalHistory[] = [
-    {
-      id: '1',
-      date: 'Feb 12, 2026 14:32',
-      amount: '5,000.00',
-      token: 'USDC',
-      destination: '0x742d35...f0Aa4f',
-      txHash: '0x7a8f9c2d...4b3e1a5f',
-      status: 'Confirmed'
-    },
-    {
-      id: '2',
-      date: 'Feb 10, 2026 09:15',
-      amount: '3,250.50',
-      token: 'USDC',
-      destination: '0x8e3b42...a2Bb5e',
-      txHash: '0x2b7c4e1a...8f6d9c3b',
-      status: 'Confirmed'
-    },
-    {
-      id: '3',
-      date: 'Feb 08, 2026 16:48',
-      amount: '1,850.00',
-      token: 'USDT',
-      destination: '0x742d35...f0Aa4f',
-      txHash: '0x9d3f5a8b...7c2e4f1a',
-      status: 'Confirmed'
-    },
-    {
-      id: '4',
-      date: 'Feb 05, 2026 11:22',
-      amount: '7,500.00',
-      token: 'USDC',
-      destination: '0x5f9a21...d8Cc3a',
-      txHash: '0x4e8b2f5c...3a9d1e7f',
-      status: 'Pending'
-    },
-  ];
+  useEffect(() => {
+    if (!walletAddress?.trim()) return;
+    listWithdrawals(walletAddress)
+      .then((res) => {
+        const apiMapped: WithdrawalHistory[] = res.withdrawals.map((w) => ({
+          id: w.id,
+          date: new Date(w.created_at).toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+          amount: (Number(w.amount_raw) / 10 ** USDC_DECIMALS).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          token: 'USDC',
+          destination: w.wallet,
+          txHash: w.tx_hash,
+          status: 'Confirmed',
+        }));
+        setWithdrawalHistory((prev) => {
+          const apiTxSet = new Set(apiMapped.map((x) => x.txHash));
+          const localOnly = prev.filter((w) => w.txHash && !apiTxSet.has(w.txHash));
+          return [...localOnly, ...apiMapped];
+        });
+      })
+      .catch(() => {});
+  }, [walletAddress]);
+
+  const EXPLORER_BASE = 'https://shadownet.explorer.etherlink.com';
 
   // Styles
   const textPrimary = isDark ? 'text-white' : 'text-gray-900';
@@ -131,7 +118,38 @@ export default function WithdrawPage({ isDark, walletAddress, onBack }: Withdraw
     : 'bg-white/90 backdrop-blur-2xl border border-gray-200/50';
 
   const truncateAddress = (address: string) => {
+    if (!address || address.length < 14) return address;
     return `${address.slice(0, 8)}...${address.slice(-6)}`;
+  };
+
+  const truncateTxHash = (hash: string) => {
+    if (!hash || hash.length < 18) return hash;
+    return `${hash.slice(0, 10)}...${hash.slice(-8)}`;
+  };
+
+  const filteredWithdrawals = withdrawalHistory.filter((w) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (
+      w.date.toLowerCase().includes(q) ||
+      w.amount.toLowerCase().includes(q) ||
+      w.token.toLowerCase().includes(q) ||
+      w.destination.toLowerCase().includes(q) ||
+      w.txHash.toLowerCase().includes(q)
+    );
+  });
+
+  const handleDownloadHistory = () => {
+    const headers = ['Date', 'Amount', 'Token', 'Destination', 'Tx Hash', 'Status'];
+    const rows = filteredWithdrawals.map((w) => [w.date, w.amount, w.token, w.destination, w.txHash, w.status]);
+    const csv = [headers.join(','), ...rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `stablelink-withdrawals-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const handleMaxClick = () => {
@@ -163,8 +181,19 @@ export default function WithdrawPage({ isDark, walletAddress, onBack }: Withdraw
     });
     sendTransaction(tx, {
       onSuccess: (result) => {
-        setTransactionHash(result.transactionHash ?? '');
+        const hash = result.transactionHash ?? '';
+        setTransactionHash(hash);
         setTransactionState('success');
+        const newEntry: WithdrawalHistory = {
+          id: hash || `withdraw-${Date.now()}`,
+          date: new Date().toLocaleString('en-US', { month: 'short', day: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+          amount: amount.replace(/,/g, ''),
+          token: selectedToken,
+          destination: destinationAddress,
+          txHash: hash,
+          status: 'Confirmed',
+        };
+        setWithdrawalHistory((prev) => [newEntry, ...prev]);
       },
       onError: (err) => {
         setWithdrawError(err?.message ?? 'Withdrawal failed.');
@@ -397,7 +426,8 @@ export default function WithdrawPage({ isDark, walletAddress, onBack }: Withdraw
                           <motion.button
                             whileHover={{ scale: 1.1 }}
                             whileTap={{ scale: 0.9 }}
-                            onClick={() => copyTxHash(transactionHash)}
+                            onClick={() => transactionHash && copyTxHash(transactionHash)}
+                            title="Copy transaction hash"
                             className={`p-1.5 rounded-lg ${isDark ? 'hover:bg-white/5' : 'hover:bg-gray-100'} transition-colors`}
                           >
                             {copiedTxHash === transactionHash ? (
@@ -406,13 +436,16 @@ export default function WithdrawPage({ isDark, walletAddress, onBack }: Withdraw
                               <Copy className={`w-4 h-4 ${textSecondary}`} />
                             )}
                           </motion.button>
-                          <motion.button
-                            whileHover={{ scale: 1.1 }}
-                            whileTap={{ scale: 0.9 }}
-                            className={`p-1.5 rounded-lg ${isDark ? 'hover:bg-white/5' : 'hover:bg-gray-100'} transition-colors`}
+                          <a
+                            href={transactionHash ? `https://shadownet.explorer.etherlink.com/tx/${transactionHash.startsWith('0x') ? transactionHash : '0x' + transactionHash}` : '#'}
+                            target="_blank"
+                            rel="noreferrer"
+                            title="View on explorer"
+                            className={`p-1.5 rounded-lg inline-flex ${isDark ? 'hover:bg-white/5' : 'hover:bg-gray-100'} transition-colors`}
+                            onClick={(e) => !transactionHash && e.preventDefault()}
                           >
                             <ExternalLink className={`w-4 h-4 ${textSecondary}`} />
-                          </motion.button>
+                          </a>
                         </div>
                       </div>
                       <div className="flex items-center justify-between">
@@ -832,7 +865,10 @@ export default function WithdrawPage({ isDark, walletAddress, onBack }: Withdraw
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                className={`p-2.5 rounded-xl ${isDark ? 'bg-white/5 hover:bg-white/10' : 'bg-gray-100 hover:bg-gray-200'} transition-colors flex-shrink-0`}
+                onClick={handleDownloadHistory}
+                disabled={filteredWithdrawals.length === 0}
+                className={`p-2.5 rounded-xl ${isDark ? 'bg-white/5 hover:bg-white/10' : 'bg-gray-100 hover:bg-gray-200'} transition-colors flex-shrink-0 disabled:opacity-50 disabled:pointer-events-none`}
+                title="Download CSV"
               >
                 <Download className={`w-4 h-4 ${textSecondary}`} />
               </motion.button>
@@ -865,63 +901,98 @@ export default function WithdrawPage({ isDark, walletAddress, onBack }: Withdraw
                 </tr>
               </thead>
               <tbody>
-                {withdrawalHistory.map((withdrawal, index) => (
-                  <motion.tr
-                    key={withdrawal.id}
-                    initial={{ opacity: 0, y: 10 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: 0.7 + index * 0.1 }}
-                    className={`border-b ${isDark ? 'border-white/5' : 'border-gray-100'} hover:${isDark ? 'bg-white/5' : 'bg-gray-50'} transition-colors`}
-                  >
-                    <td className={`py-4 px-4 text-sm font-medium ${textSecondary}`}>
-                      {withdrawal.date}
+                {filteredWithdrawals.length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className={`py-12 px-4 text-center ${textSecondary}`}>
+                      {withdrawalHistory.length === 0
+                        ? 'No withdrawals yet. Withdrawals you make here will appear in this table.'
+                        : 'No withdrawals match your search.'}
                     </td>
-                    <td className={`py-4 px-4 text-sm font-bold ${textPrimary}`}>
-                      ${withdrawal.amount}
-                    </td>
-                    <td className={`py-4 px-4`}>
-                      <span className={`px-3 py-1 rounded-lg text-xs font-bold ${
-                        isDark ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' : 'bg-cyan-50 text-cyan-600 border border-cyan-200'
-                      }`}>
-                        {withdrawal.token}
-                      </span>
-                    </td>
-                    <td className={`py-4 px-4 text-sm font-mono font-semibold ${textSecondary}`}>
-                      {withdrawal.destination}
-                    </td>
-                    <td className={`py-4 px-4`}>
-                      <div className="flex items-center gap-2">
-                        <span className={`text-sm font-mono font-semibold ${textSecondary}`}>
-                          {withdrawal.txHash}
+                  </tr>
+                ) : (
+                  filteredWithdrawals.map((withdrawal, index) => (
+                    <motion.tr
+                      key={withdrawal.id}
+                      initial={{ opacity: 0, y: 10 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.05 }}
+                      className={`border-b ${isDark ? 'border-white/5' : 'border-gray-100'} hover:${isDark ? 'bg-white/5' : 'bg-gray-50'} transition-colors`}
+                    >
+                      <td className={`py-4 px-4 text-sm font-medium ${textSecondary}`}>
+                        {withdrawal.date}
+                      </td>
+                      <td className={`py-4 px-4 text-sm font-bold ${textPrimary}`}>
+                        ${Number(withdrawal.amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                      <td className={`py-4 px-4`}>
+                        <span className={`px-3 py-1 rounded-lg text-xs font-bold ${
+                          isDark ? 'bg-cyan-500/10 text-cyan-400 border border-cyan-500/20' : 'bg-cyan-50 text-cyan-600 border border-cyan-200'
+                        }`}>
+                          {withdrawal.token}
                         </span>
-                        <motion.button
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          onClick={() => copyTxHash(withdrawal.txHash)}
-                          className={`p-1 rounded ${isDark ? 'hover:bg-white/5' : 'hover:bg-gray-100'} transition-colors`}
-                        >
-                          {copiedTxHash === withdrawal.txHash ? (
-                            <Check className="w-3.5 h-3.5 text-emerald-400" />
-                          ) : (
-                            <Copy className={`w-3.5 h-3.5 ${textMuted}`} />
-                          )}
-                        </motion.button>
-                        <motion.button
-                          whileHover={{ scale: 1.1 }}
-                          whileTap={{ scale: 0.9 }}
-                          className={`p-1 rounded ${isDark ? 'hover:bg-white/5' : 'hover:bg-gray-100'} transition-colors`}
-                        >
-                          <ExternalLink className={`w-3.5 h-3.5 ${textMuted}`} />
-                        </motion.button>
-                      </div>
-                    </td>
-                    <td className={`py-4 px-4`}>
-                      <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${getStatusColor(withdrawal.status)}`}>
-                        {withdrawal.status}
-                      </span>
-                    </td>
-                  </motion.tr>
-                ))}
+                      </td>
+                      <td className={`py-4 px-4 text-sm font-mono font-semibold ${textSecondary}`}>
+                        <div className="flex items-center gap-2">
+                          <span>{truncateAddress(withdrawal.destination)}</span>
+                          <button
+                            type="button"
+                            onClick={() => copyTxHash(withdrawal.destination)}
+                            className={`p-1 rounded ${isDark ? 'hover:bg-white/5' : 'hover:bg-gray-100'} transition-colors`}
+                            title="Copy address"
+                          >
+                            {copiedTxHash === withdrawal.destination ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className={`w-3.5 h-3.5 ${textMuted}`} />
+                            )}
+                          </button>
+                          <a
+                            href={`${EXPLORER_BASE}/address/${withdrawal.destination}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={`p-1 rounded inline-flex ${isDark ? 'hover:bg-white/5' : 'hover:bg-gray-100'} transition-colors`}
+                            title="View on explorer"
+                          >
+                            <ExternalLink className={`w-3.5 h-3.5 ${textMuted}`} />
+                          </a>
+                        </div>
+                      </td>
+                      <td className={`py-4 px-4`}>
+                        <div className="flex items-center gap-2">
+                          <span className={`text-sm font-mono font-semibold ${textSecondary}`}>
+                            {truncateTxHash(withdrawal.txHash)}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => copyTxHash(withdrawal.txHash)}
+                            className={`p-1 rounded ${isDark ? 'hover:bg-white/5' : 'hover:bg-gray-100'} transition-colors`}
+                            title="Copy transaction hash"
+                          >
+                            {copiedTxHash === withdrawal.txHash ? (
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                            ) : (
+                              <Copy className={`w-3.5 h-3.5 ${textMuted}`} />
+                            )}
+                          </button>
+                          <a
+                            href={`${EXPLORER_BASE}/tx/${withdrawal.txHash.startsWith('0x') ? withdrawal.txHash : '0x' + withdrawal.txHash}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className={`p-1 rounded inline-flex ${isDark ? 'hover:bg-white/5' : 'hover:bg-gray-100'} transition-colors`}
+                            title="View on explorer"
+                          >
+                            <ExternalLink className={`w-3.5 h-3.5 ${textMuted}`} />
+                          </a>
+                        </div>
+                      </td>
+                      <td className={`py-4 px-4`}>
+                        <span className={`px-3 py-1.5 rounded-lg text-xs font-bold border ${getStatusColor(withdrawal.status)}`}>
+                          {withdrawal.status}
+                        </span>
+                      </td>
+                    </motion.tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>

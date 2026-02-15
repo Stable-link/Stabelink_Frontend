@@ -1,7 +1,8 @@
+import { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router';
 import { motion } from 'motion/react';
 import {
   TrendingUp,
-  TrendingDown,
   DollarSign,
   Users,
   FileText,
@@ -10,108 +11,205 @@ import {
   ArrowLeft,
   Download,
   Calendar,
-  BarChart3,
-  PieChart,
-  Activity
+  Loader2,
 } from 'lucide-react';
-import { AreaChart, Area, BarChart, Bar, PieChart as RePieChart, Pie, Cell, LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend } from 'recharts';
+import { AreaChart, Area, BarChart, Bar, PieChart as RePieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { listInvoices } from '../../api';
+import type { ApiInvoice } from '../../api';
 
 interface AnalyticsPageProps {
   isDark: boolean;
   onBack: () => void;
 }
 
-export default function AnalyticsPage({ isDark, onBack }: AnalyticsPageProps) {
-  // Professional glass morphism styles
-  const glassCard = isDark 
-    ? 'bg-gradient-to-br from-[#1a1a24]/90 to-[#16161f]/90 backdrop-blur-2xl border border-white/10' 
-    : 'bg-white/90 backdrop-blur-2xl border border-gray-200/50';
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const TOKEN_COLORS: Record<string, string> = { USDC: '#06b6d4', USDT: '#10b981', DAI: '#8b5cf6' };
+const DEFAULT_TOKEN_COLOR = '#f59e0b';
 
+function getMonthKey(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+export default function AnalyticsPage({ isDark, onBack }: AnalyticsPageProps) {
+  const navigate = useNavigate();
+  const [invoices, setInvoices] = useState<ApiInvoice[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    listInvoices()
+      .then((r) => setInvoices(r.invoices))
+      .catch(() => setInvoices([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const glassCard = isDark
+    ? 'bg-gradient-to-br from-[#1a1a24]/90 to-[#16161f]/90 backdrop-blur-2xl border border-white/10'
+    : 'bg-white/90 backdrop-blur-2xl border border-gray-200/50';
   const textPrimary = isDark ? 'text-white' : 'text-gray-900';
   const textSecondary = isDark ? 'text-gray-300' : 'text-gray-700';
   const textMuted = isDark ? 'text-gray-500' : 'text-gray-400';
 
-  // Revenue data by month
-  const revenueData = [
-    { month: 'Jan', revenue: 24500, invoices: 45, clients: 32 },
-    { month: 'Feb', revenue: 28900, invoices: 52, clients: 38 },
-    { month: 'Mar', revenue: 31200, invoices: 58, clients: 41 },
-    { month: 'Apr', revenue: 35800, invoices: 64, clients: 47 },
-    { month: 'May', revenue: 42300, invoices: 71, clients: 53 },
-    { month: 'Jun', revenue: 48920, invoices: 89, clients: 62 }
-  ];
+  const paidInvoices = invoices.filter((i) => i.status === 'paid');
+  const totalRevenue = paidInvoices.reduce((sum, i) => sum + Number(i.amount), 0);
+  const uniqueClients = new Set(invoices.map((i) => String(i.client_name || i.client_email || '—').trim())).size;
+  const paidCount = paidInvoices.length;
+  const pendingCount = invoices.filter((i) => i.status === 'draft' || i.status === 'deployed').length;
 
-  // Invoice status distribution
+  const avgPaymentTimeDays = (() => {
+    const withDates = paidInvoices.filter((i) => i.paid_at && i.created_at);
+    if (withDates.length === 0) return null;
+    const totalDays = withDates.reduce((sum, i) => {
+      const paid = new Date(i.paid_at!).getTime();
+      const created = new Date(i.created_at!).getTime();
+      return sum + (paid - created) / (24 * 60 * 60 * 1000);
+    }, 0);
+    return totalDays / withDates.length;
+  })();
+
+  const last6Months = (() => {
+    const now = new Date();
+    const keys: string[] = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      keys.push(getMonthKey(d));
+    }
+    return keys;
+  })();
+
+  const revenueData = last6Months.map((key) => {
+    const [y, m] = key.split('-').map(Number);
+    const monthLabel = MONTHS[m - 1];
+    const revenue = paidInvoices
+      .filter((i) => {
+        if (!i.paid_at) return false;
+        const d = new Date(i.paid_at);
+        return d.getFullYear() === y && d.getMonth() + 1 === m;
+      })
+      .reduce((sum, i) => sum + Number(i.amount), 0);
+    const invoicesCount = invoices.filter((i) => {
+      const d = i.created_at ? new Date(i.created_at) : new Date();
+      return d.getFullYear() === y && d.getMonth() + 1 === m;
+    }).length;
+    return { month: monthLabel, revenue: Math.round(revenue * 100) / 100, invoices: invoicesCount, key };
+  });
+
   const invoiceStatusData = [
-    { name: 'Paid', value: 68, color: '#10b981' },
-    { name: 'Pending', value: 23, color: '#06b6d4' },
-    { name: 'Overdue', value: 9, color: '#ef4444' }
+    ...(paidCount > 0 ? [{ name: 'Paid', value: paidCount, color: '#10b981' }] : []),
+    ...(pendingCount > 0 ? [{ name: 'Pending', value: pendingCount, color: '#06b6d4' }] : []),
   ];
+  if (invoiceStatusData.length === 0) invoiceStatusData.push({ name: 'No data', value: 1, color: '#6b7280' });
 
-  // Top clients data
-  const topClients = [
-    { name: 'Acme Corporation', revenue: '$12,500', invoices: 24, growth: '+18%' },
-    { name: 'TechStart Inc', revenue: '$9,800', invoices: 18, growth: '+22%' },
-    { name: 'Design Studio Pro', revenue: '$8,400', invoices: 15, growth: '+15%' },
-    { name: 'Marketing Agency', revenue: '$7,200', invoices: 13, growth: '+12%' },
-    { name: 'Global Solutions', revenue: '$6,100', invoices: 11, growth: '+25%' }
-  ];
+  const topClientsMap = new Map<string, { revenue: number; invoices: number }>();
+  paidInvoices.forEach((i) => {
+    const name = i.client_name || i.client_email || 'Unknown';
+    const rev = Number(i.amount);
+    const cur = topClientsMap.get(name) || { revenue: 0, invoices: 0 };
+    topClientsMap.set(name, { revenue: cur.revenue + rev, invoices: cur.invoices + 1 });
+  });
+  const topClients = Array.from(topClientsMap.entries())
+    .map(([name, data]) => ({
+      name,
+      revenue: `$${data.revenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      invoices: data.invoices,
+    }))
+    .sort((a, b) => {
+      const aVal = parseFloat(a.revenue.replace(/[$,]/g, ''));
+      const bVal = parseFloat(b.revenue.replace(/[$,]/g, ''));
+      return bVal - aVal;
+    })
+    .slice(0, 10);
 
-  // Payment methods distribution
-  const paymentMethodsData = [
-    { name: 'USDC', value: 45, amount: '$125,800', color: '#06b6d4' },
-    { name: 'USDT', value: 30, amount: '$84,200', color: '#10b981' },
-    { name: 'DAI', value: 15, amount: '$42,100', color: '#8b5cf6' },
-    { name: 'Other', value: 10, amount: '$28,100', color: '#f59e0b' }
-  ];
+  const tokenTotals = new Map<string, number>();
+  invoices.forEach((i) => {
+    const t = i.token || 'USDC';
+    tokenTotals.set(t, (tokenTotals.get(t) || 0) + Number(i.amount));
+  });
+  const totalByToken = Array.from(tokenTotals.entries()).map(([name, amount]) => ({
+    name,
+    amount,
+    color: TOKEN_COLORS[name] || DEFAULT_TOKEN_COLOR,
+  }));
+  const sumAll = totalByToken.reduce((s, x) => s + x.amount, 0);
+  const paymentMethodsData = totalByToken.map((x) => ({
+    name: x.name,
+    value: sumAll > 0 ? Math.round((x.amount / sumAll) * 100) : 0,
+    amount: `$${x.amount.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+    color: x.color,
+  }));
+  if (paymentMethodsData.length === 0) paymentMethodsData.push({ name: 'USDC', value: 100, amount: '$0.00', color: '#06b6d4' });
 
-  // KPI Cards
   const kpiCards = [
     {
       title: 'Total Revenue',
-      value: '$280,920',
-      change: '+24.5%',
-      changeValue: '+$55,200',
-      period: 'vs last period',
+      value: `$${totalRevenue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+      change: '—',
+      changeValue: 'From paid invoices',
+      period: 'all time',
       isPositive: true,
       icon: DollarSign,
       gradient: 'from-[#FF1CF7]/20 to-transparent',
-      iconBg: 'from-[#FF1CF7] to-[#B967FF]'
+      iconBg: 'from-[#FF1CF7] to-[#B967FF]',
     },
     {
       title: 'Total Invoices',
-      value: '379',
-      change: '+12.3%',
-      changeValue: '+42 invoices',
-      period: 'vs last period',
+      value: String(invoices.length),
+      change: '—',
+      changeValue: `${paidCount} paid`,
+      period: 'all time',
       isPositive: true,
       icon: FileText,
       gradient: 'from-cyan-400/20 to-transparent',
-      iconBg: 'from-cyan-400 to-blue-400'
+      iconBg: 'from-cyan-400 to-blue-400',
     },
     {
       title: 'Active Clients',
-      value: '273',
-      change: '+8.7%',
-      changeValue: '+22 clients',
-      period: 'vs last period',
+      value: String(uniqueClients),
+      change: '—',
+      changeValue: 'Unique clients',
+      period: 'all time',
       isPositive: true,
       icon: Users,
       gradient: 'from-purple-400/20 to-transparent',
-      iconBg: 'from-purple-400 to-pink-400'
+      iconBg: 'from-purple-400 to-pink-400',
     },
     {
       title: 'Avg. Payment Time',
-      value: '4.2 days',
-      change: '-15.4%',
-      changeValue: '0.8 days faster',
-      period: 'vs last period',
+      value: avgPaymentTimeDays != null ? `${avgPaymentTimeDays.toFixed(1)} days` : '—',
+      change: '—',
+      changeValue: 'Paid invoices',
+      period: 'created to paid',
       isPositive: true,
       icon: Clock,
       gradient: 'from-emerald-400/20 to-transparent',
-      iconBg: 'from-emerald-400 to-cyan-400'
-    }
+      iconBg: 'from-emerald-400 to-cyan-400',
+    },
   ];
+
+  const handleExport = () => {
+    const headers = ['Month', 'Revenue', 'Invoices'];
+    const rows = revenueData.map((r) => [r.month, r.revenue.toFixed(2), r.invoices]);
+    const csv = [headers.join(','), ...rows.map((r) => r.join(','))].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `stablelink-analytics-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  if (loading) {
+    return (
+      <div className="p-4 sm:p-6 lg:p-8 flex flex-col items-center justify-center min-h-[50vh]">
+        <motion.button whileHover={{ x: -4 }} whileTap={{ scale: 0.95 }} onClick={onBack} className={`flex items-center gap-2 ${textSecondary} hover:opacity-80 font-semibold mb-8`}>
+          <ArrowLeft className="w-5 h-5" />
+          Back to Dashboard
+        </motion.button>
+        <Loader2 className={`w-10 h-10 animate-spin ${isDark ? 'text-[#FF1CF7]' : 'text-[#B967FF]'}`} />
+        <p className={`mt-4 text-sm ${textSecondary}`}>Loading analytics…</p>
+      </div>
+    );
+  }
 
   return (
     <div className="p-4 sm:p-6 lg:p-8 space-y-6 lg:space-y-8">
@@ -150,6 +248,7 @@ export default function AnalyticsPage({ isDark, onBack }: AnalyticsPageProps) {
           <motion.button
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
+            onClick={handleExport}
             className="flex items-center gap-2 px-4 md:px-5 py-2.5 md:py-3 rounded-xl bg-gradient-to-r from-[#FF1CF7] to-[#B967FF] shadow-lg shadow-[#FF1CF7]/30 hover:shadow-[#FF1CF7]/50 transition-all font-bold text-white justify-center"
           >
             <Download className="w-4 h-4" />
@@ -177,10 +276,14 @@ export default function AnalyticsPage({ isDark, onBack }: AnalyticsPageProps) {
                 <div className={`w-10 h-10 md:w-12 md:h-12 rounded-xl bg-gradient-to-br ${card.iconBg} flex items-center justify-center shadow-lg`}>
                   <card.icon className="w-5 h-5 md:w-6 md:h-6 text-white" />
                 </div>
-                <div className="flex items-center gap-1 text-emerald-400">
-                  <TrendingUp className="w-3.5 h-3.5 md:w-4 md:h-4" />
-                  <span className="text-xs md:text-sm font-bold">{card.change}</span>
-                </div>
+                {card.change !== '—' ? (
+                  <div className="flex items-center gap-1 text-emerald-400">
+                    <TrendingUp className="w-3.5 h-3.5 md:w-4 md:h-4" />
+                    <span className="text-xs md:text-sm font-bold">{card.change}</span>
+                  </div>
+                ) : (
+                  <span className="text-xs md:text-sm font-semibold text-gray-500">—</span>
+                )}
               </div>
               
               {/* Title */}
@@ -405,66 +508,61 @@ export default function AnalyticsPage({ isDark, onBack }: AnalyticsPageProps) {
             <p className={`${textSecondary} text-xs md:text-sm`}>Your most valuable business relationships</p>
           </div>
           <motion.button
+            type="button"
+            onClick={() => navigate('/dashboard/invoices')}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#FF1CF7] to-[#B967FF] shadow-lg shadow-[#FF1CF7]/30 hover:shadow-[#FF1CF7]/50 transition-all font-bold text-white text-sm"
           >
-            View All Clients
+            View Invoices
             <ArrowRight className="w-4 h-4" />
           </motion.button>
         </div>
 
         <div className="overflow-x-auto -mx-5 md:mx-0">
-          <table className="w-full min-w-[600px]">
-            <thead>
-              <tr className={`border-b ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
-                <th className={`text-left py-3 md:py-4 px-4 md:px-6 text-[10px] md:text-xs font-bold uppercase tracking-widest ${textMuted}`}>Rank</th>
-                <th className={`text-left py-3 md:py-4 px-4 md:px-6 text-[10px] md:text-xs font-bold uppercase tracking-widest ${textMuted}`}>Client</th>
-                <th className={`text-left py-3 md:py-4 px-4 md:px-6 text-[10px] md:text-xs font-bold uppercase tracking-widest ${textMuted}`}>Revenue</th>
-                <th className={`text-left py-3 md:py-4 px-4 md:px-6 text-[10px] md:text-xs font-bold uppercase tracking-widest ${textMuted}`}>Invoices</th>
-                <th className={`text-left py-3 md:py-4 px-4 md:px-6 text-[10px] md:text-xs font-bold uppercase tracking-widest ${textMuted}`}>Growth</th>
-              </tr>
-            </thead>
-            <tbody>
-              {topClients.map((client, index) => (
-                <motion.tr
-                  key={client.name}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: 0.9 + index * 0.05 }}
-                  className={`border-b ${isDark ? 'border-white/5 hover:bg-white/5' : 'border-gray-100 hover:bg-gray-50'} transition-colors`}
-                >
-                  <td className={`py-4 md:py-5 px-4 md:px-6`}>
-                    <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
-                      index === 0 ? 'bg-gradient-to-br from-yellow-400 to-orange-400' :
-                      index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-400' :
-                      index === 2 ? 'bg-gradient-to-br from-orange-300 to-orange-400' :
-                      isDark ? 'bg-white/10' : 'bg-gray-200'
-                    }`}>
-                      <span className={`text-xs font-bold ${index < 3 ? 'text-white' : textPrimary}`}>
-                        #{index + 1}
-                      </span>
-                    </div>
-                  </td>
-                  <td className={`py-4 md:py-5 px-4 md:px-6 text-xs md:text-sm font-bold ${textPrimary}`}>
-                    {client.name}
-                  </td>
-                  <td className={`py-4 md:py-5 px-4 md:px-6 text-xs md:text-sm font-bold ${textPrimary}`}>
-                    {client.revenue}
-                  </td>
-                  <td className={`py-4 md:py-5 px-4 md:px-6 text-xs md:text-sm font-semibold ${textSecondary}`}>
-                    {client.invoices}
-                  </td>
-                  <td className={`py-4 md:py-5 px-4 md:px-6`}>
-                    <div className="flex items-center gap-1 text-emerald-400">
-                      <TrendingUp className="w-4 h-4" />
-                      <span className="text-xs md:text-sm font-bold">{client.growth}</span>
-                    </div>
-                  </td>
-                </motion.tr>
-              ))}
-            </tbody>
-          </table>
+          {topClients.length === 0 ? (
+            <div className={`py-12 text-center rounded-xl ${isDark ? 'bg-white/5' : 'bg-gray-50'}`}>
+              <Users className={`w-12 h-12 mx-auto mb-3 ${textMuted}`} />
+              <p className={`text-sm font-semibold ${textPrimary}`}>No client data yet</p>
+              <p className={`text-xs ${textSecondary} mt-1`}>Paid invoices will appear here</p>
+            </div>
+          ) : (
+            <table className="w-full min-w-[600px]">
+              <thead>
+                <tr className={`border-b ${isDark ? 'border-white/10' : 'border-gray-200'}`}>
+                  <th className={`text-left py-3 md:py-4 px-4 md:px-6 text-[10px] md:text-xs font-bold uppercase tracking-widest ${textMuted}`}>Rank</th>
+                  <th className={`text-left py-3 md:py-4 px-4 md:px-6 text-[10px] md:text-xs font-bold uppercase tracking-widest ${textMuted}`}>Client</th>
+                  <th className={`text-left py-3 md:py-4 px-4 md:px-6 text-[10px] md:text-xs font-bold uppercase tracking-widest ${textMuted}`}>Revenue</th>
+                  <th className={`text-left py-3 md:py-4 px-4 md:px-6 text-[10px] md:text-xs font-bold uppercase tracking-widest ${textMuted}`}>Invoices</th>
+                </tr>
+              </thead>
+              <tbody>
+                {topClients.map((client, index) => (
+                  <motion.tr
+                    key={`${client.name}-${index}`}
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.9 + index * 0.05 }}
+                    className={`border-b ${isDark ? 'border-white/5 hover:bg-white/5' : 'border-gray-100 hover:bg-gray-50'} transition-colors`}
+                  >
+                    <td className="py-4 md:py-5 px-4 md:px-6">
+                      <div className={`w-8 h-8 rounded-lg flex items-center justify-center ${
+                        index === 0 ? 'bg-gradient-to-br from-yellow-400 to-orange-400' :
+                        index === 1 ? 'bg-gradient-to-br from-gray-300 to-gray-400' :
+                        index === 2 ? 'bg-gradient-to-br from-orange-300 to-orange-400' :
+                        isDark ? 'bg-white/10' : 'bg-gray-200'
+                      }`}>
+                        <span className={`text-xs font-bold ${index < 3 ? 'text-white' : textPrimary}`}>#{index + 1}</span>
+                      </div>
+                    </td>
+                    <td className={`py-4 md:py-5 px-4 md:px-6 text-xs md:text-sm font-bold ${textPrimary}`}>{client.name}</td>
+                    <td className={`py-4 md:py-5 px-4 md:px-6 text-xs md:text-sm font-bold ${textPrimary}`}>{client.revenue}</td>
+                    <td className={`py-4 md:py-5 px-4 md:px-6 text-xs md:text-sm font-semibold ${textSecondary}`}>{client.invoices}</td>
+                  </motion.tr>
+                ))}
+              </tbody>
+            </table>
+          )}
         </div>
       </motion.div>
     </div>

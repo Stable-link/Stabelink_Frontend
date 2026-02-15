@@ -33,32 +33,33 @@ export default function FaucetPage({ isDark, walletAddress, onBack }: FaucetPage
   const [lastClaimTime, setLastClaimTime] = useState<number | null>(null);
   const [timeUntilClaim, setTimeUntilClaim] = useState<number>(0);
 
-  const faucetContract = FAUCET_ADDRESS
-    ? getContract({
-        client: thirdwebClient,
-        chain: etherlinkShadownet,
-        address: FAUCET_ADDRESS as `0x${string}`,
-        abi: FAUCET_ABI,
-      })
-    : null;
+  // useReadContract requires a defined contract (it reads contract.chain). Use placeholder when no address.
+  const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000' as `0x${string}`;
+  const faucetContract = getContract({
+    client: thirdwebClient,
+    chain: etherlinkShadownet,
+    address: (FAUCET_ADDRESS || ZERO_ADDRESS) as `0x${string}`,
+    abi: FAUCET_ABI,
+  });
+  const hasFaucet = !!FAUCET_ADDRESS && FAUCET_ADDRESS.startsWith('0x');
 
   const { data: claimStatus, refetch: refetchClaimStatus } = useReadContract({
-    contract: faucetContract || undefined,
+    contract: faucetContract,
     method: 'function canClaim(address user) view returns (bool canClaim, uint256 timeUntilClaim)',
     params: [walletAddress as `0x${string}`],
-    queryOptions: { enabled: !!faucetContract && !!walletAddress && walletAddress.startsWith('0x') },
+    queryOptions: { enabled: hasFaucet && !!walletAddress && walletAddress.startsWith('0x') },
   });
 
   const { data: claimAmount } = useReadContract({
-    contract: faucetContract || undefined,
+    contract: faucetContract,
     method: 'function claimAmount() view returns (uint256)',
-    queryOptions: { enabled: !!faucetContract },
+    queryOptions: { enabled: hasFaucet },
   });
 
   const { data: tokenAddress } = useReadContract({
-    contract: faucetContract || undefined,
+    contract: faucetContract,
     method: 'function token() view returns (address)',
-    queryOptions: { enabled: !!faucetContract },
+    queryOptions: { enabled: hasFaucet },
   });
 
   const tokenContract = tokenAddress
@@ -68,13 +69,18 @@ export default function FaucetPage({ isDark, walletAddress, onBack }: FaucetPage
         address: tokenAddress as `0x${string}`,
         abi: ERC20_ABI,
       })
-    : null;
+    : getContract({
+        client: thirdwebClient,
+        chain: etherlinkShadownet,
+        address: ZERO_ADDRESS,
+        abi: ERC20_ABI,
+      });
 
   const { data: faucetBalance } = useReadContract({
-    contract: tokenContract || undefined,
+    contract: tokenContract,
     method: 'function balanceOf(address account) view returns (uint256)',
-    params: [FAUCET_ADDRESS as `0x${string}`],
-    queryOptions: { enabled: !!tokenContract && !!FAUCET_ADDRESS },
+    params: [(FAUCET_ADDRESS || ZERO_ADDRESS) as `0x${string}`],
+    queryOptions: { enabled: hasFaucet && !!tokenAddress },
   });
 
   const { mutate: sendTransaction } = useSendTransaction();
@@ -98,6 +104,22 @@ export default function FaucetPage({ isDark, walletAddress, onBack }: FaucetPage
     return () => clearInterval(interval);
   }, [claimStatus, timeUntilClaim, refetchClaimStatus]);
 
+  // Timeout: if stuck in confirming/processing for 90s, reset so user isn't stuck
+  useEffect(() => {
+    if (claimState !== 'confirming' && claimState !== 'processing') return;
+    const timeout = setTimeout(() => {
+      setClaimState('idle');
+      setError('Request timed out. If you signed the transaction, check your wallet; otherwise try again.');
+    }, 90_000);
+    return () => clearTimeout(timeout);
+  }, [claimState]);
+
+  // Reset claim state when wallet or faucet config changes (e.g. avoid stale "Processing...")
+  useEffect(() => {
+    setClaimState((prev) => (prev === 'confirming' || prev === 'processing' ? 'idle' : prev));
+    setError(null);
+  }, [walletAddress, hasFaucet]);
+
   const canClaim = claimStatus ? (claimStatus as [boolean, bigint])[0] : false;
   const claimAmountFormatted = claimAmount
     ? (Number(claimAmount) / 10 ** USDC_DECIMALS).toLocaleString('en-US', {
@@ -117,7 +139,7 @@ export default function FaucetPage({ isDark, walletAddress, onBack }: FaucetPage
   };
 
   const handleClaim = async () => {
-    if (!faucetContract) {
+    if (!hasFaucet) {
       setError('Faucet not configured. Please set VITE_FAUCET_ADDRESS in .env');
       return;
     }
@@ -149,30 +171,27 @@ export default function FaucetPage({ isDark, walletAddress, onBack }: FaucetPage
 
       sendTransaction(transaction, {
         onSuccess: (result) => {
-          setTransactionHash(result.transactionHash);
-          setClaimState('processing');
-          // Reset error on success
+          setTransactionHash(result.transactionHash ?? '');
+          setClaimState('success');
           setError(null);
+          refetchClaimStatus();
         },
-        onError: (err: any) => {
+        onError: (err: unknown) => {
           console.error('Claim error:', err);
-          
-          // Try to extract a more helpful error message
           let errorMessage = 'Failed to claim tokens';
-          
-          if (err?.message) {
-            errorMessage = err.message;
-            
-            // Check for common error patterns
-            if (err.message.includes('insufficient balance') || err.message.includes('InsufficientBalance')) {
+          const msg = err && typeof err === 'object' && 'message' in err ? String((err as { message: unknown }).message) : '';
+          if (msg) {
+            errorMessage = msg;
+            if (msg.includes('insufficient balance') || msg.includes('InsufficientBalance')) {
               errorMessage = 'Faucet has insufficient tokens. Please contact the administrator.';
-            } else if (err.message.includes('cooldown') || err.message.includes('Cooldown')) {
+            } else if (msg.includes('cooldown') || msg.includes('Cooldown')) {
               errorMessage = `Please wait ${formatTimeUntilClaim(timeUntilClaim)} before claiming again`;
-            } else if (err.message.includes('0xe450d38c') || err.message.includes('Encoded error signature')) {
+            } else if (msg.includes('0xe450d38c') || msg.includes('Encoded error signature')) {
               errorMessage = 'Transaction failed. The faucet may be out of tokens or there may be a network issue.';
+            } else if (msg.includes('chain') || msg.includes('network')) {
+              errorMessage = 'Wrong network. Please switch to Etherlink ShadowNet in your wallet.';
             }
           }
-          
           setError(errorMessage);
           setClaimState('failed');
         },

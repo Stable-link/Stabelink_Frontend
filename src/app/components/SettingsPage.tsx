@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ArrowLeft,
   Settings,
@@ -15,8 +15,6 @@ import {
   Crown,
   Eye,
   DollarSign,
-  Clock,
-  Globe,
   Calendar,
   Mail,
   Key,
@@ -30,10 +28,11 @@ import {
   Copy,
   ExternalLink,
   Zap,
-  Target,
-  TrendingUp
+  TrendingUp,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { getOrganization, inviteTeamMember, type ApiOrganization } from '../../api';
 
 interface SettingsPageProps {
   isDark: boolean;
@@ -62,23 +61,71 @@ interface ConnectedWallet {
   lastUsed: string;
 }
 
+function formatRole(r: string): 'Admin' | 'Finance' | 'Viewer' {
+  if (r === 'admin') return 'Admin';
+  if (r === 'finance') return 'Finance';
+  return 'Viewer';
+}
+
+function formatStatus(s: string): 'Active' | 'Pending' | 'Inactive' {
+  if (s === 'active') return 'Active';
+  if (s === 'pending') return 'Pending';
+  return 'Inactive';
+}
+
+function formatDate(iso: string): string {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+  } catch {
+    return iso;
+  }
+}
+
 export default function SettingsPage({ isDark, walletAddress, onBack }: SettingsPageProps) {
   const [activeTab, setActiveTab] = useState<'organization' | 'team' | 'wallets' | 'permissions' | 'security'>('organization');
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [showAddWalletModal, setShowAddWalletModal] = useState(false);
   const [editingOrgName, setEditingOrgName] = useState(false);
-  const [orgName, setOrgName] = useState('Freelance Studio Co.');
-  const [tempOrgName, setTempOrgName] = useState(orgName);
+  const [orgName, setOrgName] = useState('');
+  const [tempOrgName, setTempOrgName] = useState('');
   const [activeActionMenu, setActiveActionMenu] = useState<string | null>(null);
+
+  const [org, setOrg] = useState<ApiOrganization | null>(null);
+  const [orgLoading, setOrgLoading] = useState(true);
+  const [orgError, setOrgError] = useState<string | null>(null);
 
   // Invite form state
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteRole, setInviteRole] = useState<'Admin' | 'Finance' | 'Viewer'>('Viewer');
   const [inviteWallet, setInviteWallet] = useState('');
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteSubmitting, setInviteSubmitting] = useState(false);
 
   // Add wallet form state
   const [newWalletAddress, setNewWalletAddress] = useState('');
   const [newWalletLabel, setNewWalletLabel] = useState('');
+
+  useEffect(() => {
+    let cancelled = false;
+    setOrgLoading(true);
+    setOrgError(null);
+    getOrganization()
+      .then((data) => {
+        if (!cancelled) {
+          setOrg(data);
+          setOrgName(data.name);
+          setTempOrgName(data.name);
+        }
+      })
+      .catch((err) => {
+        if (!cancelled) setOrgError(err instanceof Error ? err.message : 'Failed to load organization');
+      })
+      .finally(() => {
+        if (!cancelled) setOrgLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   // Styles
   const textPrimary = isDark ? 'text-white' : 'text-gray-900';
@@ -93,75 +140,32 @@ export default function SettingsPage({ isDark, walletAddress, onBack }: Settings
     ? 'bg-white/5 border border-white/10 text-white placeholder-gray-500'
     : 'bg-gray-50 border border-gray-200 text-gray-900 placeholder-gray-400';
 
-  // Mock Data
-  const teamMembers: TeamMember[] = [
-    {
-      id: '1',
-      name: 'Sarah Chen',
-      email: 'sarah@freelancestudio.co',
-      walletAddress: '0x742d...9e3a',
-      role: 'Admin',
-      status: 'Active',
-      joinedDate: 'Jan 15, 2026'
-    },
-    {
-      id: '2',
-      name: 'Marcus Rodriguez',
-      email: 'marcus@freelancestudio.co',
-      walletAddress: '0x8f4c...2b1d',
-      role: 'Finance',
-      status: 'Active',
-      joinedDate: 'Jan 20, 2026'
-    },
-    {
-      id: '3',
-      name: 'Priya Sharma',
-      email: 'priya@freelancestudio.co',
-      walletAddress: '0x3a7e...5c8f',
-      role: 'Viewer',
-      status: 'Active',
-      joinedDate: 'Feb 01, 2026'
-    },
-    {
-      id: '4',
-      name: 'Alex Kim',
-      email: 'alex@freelancestudio.co',
-      walletAddress: 'Pending',
-      role: 'Finance',
-      status: 'Pending',
-      joinedDate: 'Feb 10, 2026'
-    }
-  ];
+  const teamMembers: TeamMember[] = org
+    ? org.members.map((m) => ({
+        id: m.user_id,
+        name: m.email ? m.email.replace(/@.*/, '') : 'Member',
+        email: m.email ?? '—',
+        walletAddress: '—',
+        role: formatRole(m.role),
+        status: formatStatus(m.status),
+        joinedDate: '—'
+      }))
+    : [];
 
-  const connectedWallets: ConnectedWallet[] = [
-    {
-      id: '1',
-      address: walletAddress,
-      label: 'Primary Treasury',
-      isDefault: true,
-      balance: '24,850.00',
-      token: 'USDC',
-      lastUsed: '2 hours ago'
-    },
-    {
-      id: '2',
-      address: '0x8f4c2b1d9e3a7c5f6b8d2e4a1c9f7b3d5e8a6c2b',
-      label: 'Operations Wallet',
-      isDefault: false,
-      balance: '8,420.50',
-      token: 'USDC',
-      lastUsed: '1 day ago'
-    },
-    {
-      id: '3',
-      address: '0x3a7e5c8f2b4d6e1a9c7f3b5d8e2a4c6f1b9d7e3a',
-      label: 'Client Payments',
-      isDefault: false,
-      balance: '15,230.75',
-      token: 'USDT',
-      lastUsed: '3 days ago'
-    }
-  ];
+  const primaryWallet = org?.primary_wallet ?? walletAddress;
+  const connectedWallets: ConnectedWallet[] = primaryWallet
+    ? [
+        {
+          id: 'primary',
+          address: primaryWallet,
+          label: 'Primary Treasury',
+          isDefault: true,
+          balance: '—',
+          token: '—',
+          lastUsed: '—'
+        }
+      ]
+    : [];
 
   const permissions = [
     { feature: 'Create Invoice', admin: true, finance: true, viewer: false },
@@ -228,12 +232,29 @@ export default function SettingsPage({ isDark, walletAddress, onBack }: Settings
     setEditingOrgName(false);
   };
 
-  const handleInviteMember = () => {
-    // Handle invite logic
-    setShowInviteModal(false);
-    setInviteEmail('');
-    setInviteRole('Viewer');
-    setInviteWallet('');
+  const handleInviteMember = async () => {
+    const email = inviteEmail.trim();
+    if (!email) return;
+    setInviteError(null);
+    setInviteSubmitting(true);
+    try {
+      await inviteTeamMember({
+        email,
+        role: inviteRole.toLowerCase() as 'admin' | 'finance' | 'viewer'
+      });
+      setShowInviteModal(false);
+      setInviteEmail('');
+      setInviteRole('Viewer');
+      setInviteWallet('');
+      const data = await getOrganization();
+      setOrg(data);
+      setOrgName(data.name);
+      setTempOrgName(data.name);
+    } catch (err) {
+      setInviteError(err instanceof Error ? err.message : 'Failed to invite');
+    } finally {
+      setInviteSubmitting(false);
+    }
   };
 
   const handleAddWallet = () => {
@@ -314,6 +335,13 @@ export default function SettingsPage({ isDark, walletAddress, onBack }: Settings
             animate={{ opacity: 1, y: 0 }}
             className="space-y-6"
           >
+            {orgError && (
+              <div className={`rounded-2xl p-4 ${isDark ? 'bg-red-500/10 border border-red-500/20' : 'bg-red-50 border border-red-200'}`}>
+                <p className={`text-sm font-semibold ${isDark ? 'text-red-400' : 'text-red-600'}`}>{orgError}</p>
+                <p className={`text-xs mt-1 ${textMuted}`}>Set your API key in Settings or .env to load organization data.</p>
+              </div>
+            )}
+
             {/* Overview Card */}
             <div className={`${glassCard} rounded-2xl p-8 shadow-xl`}>
               <div className="flex items-start justify-between mb-6">
@@ -330,6 +358,12 @@ export default function SettingsPage({ isDark, walletAddress, onBack }: Settings
                 </div>
               </div>
 
+              {orgLoading ? (
+                <div className="flex items-center gap-3 py-8">
+                  <Loader2 className={`w-6 h-6 animate-spin ${textMuted}`} />
+                  <span className={textSecondary}>Loading organization…</span>
+                </div>
+              ) : (
               <div className="space-y-6">
                 {/* Organization Name */}
                 <div>
@@ -365,13 +399,14 @@ export default function SettingsPage({ isDark, walletAddress, onBack }: Settings
                     ) : (
                       <>
                         <div className={`flex-1 px-4 py-3 rounded-xl ${isDark ? 'bg-white/5' : 'bg-gray-50'} font-bold ${textPrimary}`}>
-                          {orgName}
+                          {orgName || '—'}
                         </div>
                         <motion.button
                           whileHover={{ scale: 1.05 }}
                           whileTap={{ scale: 0.95 }}
                           onClick={() => setEditingOrgName(true)}
-                          className={`p-3 rounded-xl ${isDark ? 'bg-white/5 hover:bg-white/10' : 'bg-gray-100 hover:bg-gray-200'} transition-all ${textPrimary}`}
+                          disabled={!org}
+                          className={`p-3 rounded-xl ${isDark ? 'bg-white/5 hover:bg-white/10' : 'bg-gray-100 hover:bg-gray-200'} transition-all ${textPrimary} disabled:opacity-50`}
                         >
                           <Edit className="w-5 h-5" />
                         </motion.button>
@@ -387,11 +422,12 @@ export default function SettingsPage({ isDark, walletAddress, onBack }: Settings
                   </label>
                   <div className="flex items-center gap-3">
                     <div className={`flex-1 px-4 py-3 rounded-xl ${isDark ? 'bg-white/5' : 'bg-gray-50'} font-mono text-sm ${textPrimary}`}>
-                      ORG-FL-2026-8492
+                      {org?.id ?? '—'}
                     </div>
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
+                      onClick={() => org?.id && navigator.clipboard.writeText(org.id)}
                       className={`p-3 rounded-xl ${isDark ? 'bg-white/5 hover:bg-white/10' : 'bg-gray-100 hover:bg-gray-200'} transition-all ${textPrimary}`}
                     >
                       <Copy className="w-5 h-5" />
@@ -406,11 +442,12 @@ export default function SettingsPage({ isDark, walletAddress, onBack }: Settings
                   </label>
                   <div className="flex items-center gap-3">
                     <div className={`flex-1 px-4 py-3 rounded-xl ${isDark ? 'bg-white/5' : 'bg-gray-50'} font-mono text-sm ${textPrimary}`}>
-                      {walletAddress}
+                      {primaryWallet || '—'}
                     </div>
                     <motion.button
                       whileHover={{ scale: 1.05 }}
                       whileTap={{ scale: 0.95 }}
+                      onClick={() => primaryWallet && navigator.clipboard.writeText(primaryWallet)}
                       className={`p-3 rounded-xl ${isDark ? 'bg-white/5 hover:bg-white/10' : 'bg-gray-100 hover:bg-gray-200'} transition-all ${textPrimary}`}
                     >
                       <Copy className="w-5 h-5" />
@@ -418,7 +455,7 @@ export default function SettingsPage({ isDark, walletAddress, onBack }: Settings
                   </div>
                 </div>
 
-                {/* Row: Platform Fee & Timezone */}
+                {/* Row: Platform Fee & Created Date */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                   <div>
                     <label className={`block text-sm font-bold ${textSecondary} mb-2`}>
@@ -428,7 +465,7 @@ export default function SettingsPage({ isDark, walletAddress, onBack }: Settings
                       <DollarSign className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 ${textMuted}`} />
                       <input
                         type="text"
-                        value="2.5"
+                        value={org != null ? (org.default_platform_fee / 100).toFixed(1) : '—'}
                         readOnly
                         className={`w-full pl-12 pr-4 py-3 rounded-xl ${inputStyles} font-semibold`}
                       />
@@ -437,44 +474,29 @@ export default function SettingsPage({ isDark, walletAddress, onBack }: Settings
 
                   <div>
                     <label className={`block text-sm font-bold ${textSecondary} mb-2`}>
-                      Timezone
+                      Created Date
                     </label>
                     <div className="relative">
-                      <Globe className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 ${textMuted}`} />
+                      <Calendar className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 ${textMuted}`} />
                       <input
                         type="text"
-                        value="Asia/Singapore (UTC+8)"
+                        value={org?.created_at ? formatDate(org.created_at) : '—'}
                         readOnly
-                        className={`w-full pl-12 pr-4 py-3 rounded-xl ${inputStyles} font-semibold`}
+                        className={`w-full pl-12 pr-4 py-3 rounded-xl ${isDark ? 'bg-white/5' : 'bg-gray-50'} ${textPrimary} font-semibold cursor-not-allowed`}
                       />
                     </div>
                   </div>
                 </div>
-
-                {/* Created Date */}
-                <div>
-                  <label className={`block text-sm font-bold ${textSecondary} mb-2`}>
-                    Created Date
-                  </label>
-                  <div className="relative">
-                    <Calendar className={`absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 ${textMuted}`} />
-                    <input
-                      type="text"
-                      value="January 15, 2026"
-                      readOnly
-                      className={`w-full pl-12 pr-4 py-3 rounded-xl ${isDark ? 'bg-white/5' : 'bg-gray-50'} ${textPrimary} font-semibold cursor-not-allowed`}
-                    />
-                  </div>
-                </div>
               </div>
+              )}
             </div>
 
             {/* Stats Cards */}
             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
               {[
-                { label: 'Total Members', value: '4', icon: Users, gradient: 'from-[#FF1CF7] to-[#B967FF]' },
-                { label: 'Active Wallets', value: '3', icon: Wallet, gradient: 'from-cyan-400 to-blue-400' },
-                { label: 'Total Volume', value: '$284K', icon: TrendingUp, gradient: 'from-emerald-400 to-cyan-400' }
+                { label: 'Total Members', value: org != null ? String(org.members.length) : '—', icon: Users, gradient: 'from-[#FF1CF7] to-[#B967FF]' },
+                { label: 'Active Wallets', value: primaryWallet ? '1' : '0', icon: Wallet, gradient: 'from-cyan-400 to-blue-400' },
+                { label: 'Total Volume', value: '—', icon: TrendingUp, gradient: 'from-emerald-400 to-cyan-400' }
               ].map((stat, index) => (
                 <motion.div
                   key={stat.label}
@@ -557,7 +579,22 @@ export default function SettingsPage({ isDark, walletAddress, onBack }: Settings
                   </tr>
                 </thead>
                 <tbody>
-                  {teamMembers.map((member, index) => (
+                  {orgLoading ? (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <Loader2 className={`w-5 h-5 animate-spin ${textMuted}`} />
+                          <span className={textSecondary}>Loading team…</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : teamMembers.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="py-12 text-center">
+                        <span className={textMuted}>No team members yet. Invite someone to get started.</span>
+                      </td>
+                    </tr>
+                  ) : teamMembers.map((member, index) => (
                     <motion.tr
                       key={member.id}
                       initial={{ opacity: 0, y: 10 }}
@@ -692,7 +729,16 @@ export default function SettingsPage({ isDark, walletAddress, onBack }: Settings
                   </tr>
                 </thead>
                 <tbody>
-                  {connectedWallets.map((wallet, index) => (
+                  {orgLoading && connectedWallets.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="py-12 text-center">
+                        <div className="flex items-center justify-center gap-2">
+                          <Loader2 className={`w-5 h-5 animate-spin ${textMuted}`} />
+                          <span className={textSecondary}>Loading…</span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : connectedWallets.map((wallet, index) => (
                     <motion.tr
                       key={wallet.id}
                       initial={{ opacity: 0, y: 10 }}
@@ -705,7 +751,11 @@ export default function SettingsPage({ isDark, walletAddress, onBack }: Settings
                           <span className={`font-mono text-sm ${textPrimary}`}>
                             {wallet.address}
                           </span>
-                          <button className={`p-1 rounded ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}>
+                          <button
+                            type="button"
+                            onClick={() => navigator.clipboard.writeText(wallet.address)}
+                            className={`p-1 rounded ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100'}`}
+                          >
                             <Copy className="w-4 h-4" />
                           </button>
                         </div>
@@ -1058,7 +1108,7 @@ export default function SettingsPage({ isDark, walletAddress, onBack }: Settings
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              onClick={() => setShowInviteModal(false)}
+              onClick={() => { setShowInviteModal(false); setInviteError(null); }}
               className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50"
             />
             <motion.div
@@ -1073,7 +1123,7 @@ export default function SettingsPage({ isDark, walletAddress, onBack }: Settings
                     Invite Team Member
                   </h3>
                   <button
-                    onClick={() => setShowInviteModal(false)}
+                    onClick={() => { setShowInviteModal(false); setInviteError(null); }}
                     className={`p-2 rounded-xl ${isDark ? 'hover:bg-white/10' : 'hover:bg-gray-100'} transition-all`}
                   >
                     <X className="w-5 h-5" />
@@ -1122,14 +1172,19 @@ export default function SettingsPage({ isDark, walletAddress, onBack }: Settings
                     />
                   </div>
 
+                  {inviteError && (
+                    <p className={`text-sm ${isDark ? 'text-red-400' : 'text-red-600'}`}>{inviteError}</p>
+                  )}
                   <div className="flex items-center gap-3 pt-4">
                     <motion.button
-                      whileHover={{ scale: 1.02 }}
-                      whileTap={{ scale: 0.98 }}
+                      whileHover={{ scale: inviteSubmitting ? 1 : 1.02 }}
+                      whileTap={{ scale: inviteSubmitting ? 1 : 0.98 }}
                       onClick={handleInviteMember}
-                      className="flex-1 px-6 py-3 rounded-xl bg-gradient-to-r from-[#FF1CF7] to-[#B967FF] font-bold text-white shadow-lg shadow-[#FF1CF7]/30 hover:shadow-[#FF1CF7]/50 transition-all"
+                      disabled={inviteSubmitting || !inviteEmail.trim()}
+                      className="flex-1 px-6 py-3 rounded-xl bg-gradient-to-r from-[#FF1CF7] to-[#B967FF] font-bold text-white shadow-lg shadow-[#FF1CF7]/30 hover:shadow-[#FF1CF7]/50 transition-all disabled:opacity-60 flex items-center justify-center gap-2"
                     >
-                      Send Invitation
+                      {inviteSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+                      {inviteSubmitting ? 'Sending…' : 'Send Invitation'}
                     </motion.button>
                     <motion.button
                       whileHover={{ scale: 1.02 }}

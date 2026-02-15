@@ -3,12 +3,52 @@
  * API key: VITE_API_KEY in .env or localStorage key "stablelink_api_key".
  */
 
-const API_BASE_URL =
+export const API_BASE_URL =
   typeof import.meta.env.VITE_API_URL === "string" && import.meta.env.VITE_API_URL
     ? import.meta.env.VITE_API_URL.replace(/\/$/, "")
     : "http://localhost:4000";
 
 const API_KEY_STORAGE_KEY = "stablelink_api_key";
+const WORKSPACES_STORAGE_KEY = "stablelink_workspaces";
+const READ_NOTIFICATIONS_STORAGE_KEY = "stablelink_read_notification_ids";
+
+export interface Workspace {
+  id: string;
+  name: string;
+  apiKey: string;
+}
+
+export function getWorkspaces(): Workspace[] {
+  try {
+    const raw = localStorage.getItem(WORKSPACES_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter(
+      (w): w is Workspace =>
+        w && typeof w === "object" && typeof (w as Workspace).id === "string" && typeof (w as Workspace).name === "string" && typeof (w as Workspace).apiKey === "string"
+    );
+  } catch {
+    return [];
+  }
+}
+
+export function setWorkspaces(workspaces: Workspace[]): void {
+  localStorage.setItem(WORKSPACES_STORAGE_KEY, JSON.stringify(workspaces));
+}
+
+export function addWorkspace(name: string, apiKey: string): Workspace {
+  const workspaces = getWorkspaces();
+  const id = `ws-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  const workspace: Workspace = { id, name: name.trim(), apiKey: apiKey.trim() };
+  workspaces.push(workspace);
+  setWorkspaces(workspaces);
+  return workspace;
+}
+
+export function removeWorkspace(id: string): void {
+  setWorkspaces(getWorkspaces().filter((w) => w.id !== id));
+}
 
 export function getApiKey(): string | null {
   const fromEnv = import.meta.env.VITE_API_KEY;
@@ -23,6 +63,33 @@ export function getApiKey(): string | null {
 
 export function setApiKey(key: string): void {
   localStorage.setItem(API_KEY_STORAGE_KEY, key.trim());
+}
+
+/** Per-org persisted set of read notification IDs (keyed by API key). */
+export function getReadNotificationIds(apiKey: string | null): string[] {
+  if (!apiKey?.trim()) return [];
+  try {
+    const raw = localStorage.getItem(READ_NOTIFICATIONS_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!parsed || typeof parsed !== "object") return [];
+    const arr = (parsed as Record<string, string[]>)[apiKey.trim()];
+    return Array.isArray(arr) ? arr : [];
+  } catch {
+    return [];
+  }
+}
+
+export function setReadNotificationIds(apiKey: string | null, ids: string[]): void {
+  if (!apiKey?.trim()) return;
+  try {
+    const raw = localStorage.getItem(READ_NOTIFICATIONS_STORAGE_KEY);
+    const parsed: Record<string, string[]> = raw ? (JSON.parse(raw) as Record<string, string[]>) : {};
+    parsed[apiKey.trim()] = ids;
+    localStorage.setItem(READ_NOTIFICATIONS_STORAGE_KEY, JSON.stringify(parsed));
+  } catch {
+    // ignore
+  }
 }
 
 export function apiUrl(path: string): string {
@@ -96,6 +163,40 @@ export async function listInvoices(): Promise<{ invoices: ApiInvoice[] }> {
 
 export async function getInvoice(id: string): Promise<ApiInvoice> {
   return apiJson(`/api/invoices/${encodeURIComponent(id)}`);
+}
+
+/** Public invoice fetch for checkout (no API key). */
+export interface PublicInvoice {
+  id: string;
+  onchain_invoice_id: number;
+  amount: string;
+  token: string;
+  client_name: string | null;
+  client_email: string | null;
+  creator_wallet: string;
+  status: string;
+}
+
+export async function getPublicInvoice(id: string): Promise<PublicInvoice> {
+  const res = await fetch(apiUrl(`/api/public/invoices/${encodeURIComponent(id)}`));
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new ApiError(res.status, (data as { error?: string }).error ?? res.statusText);
+  return data as PublicInvoice;
+}
+
+export interface ApiWithdrawal {
+  id: string;
+  wallet: string;
+  token: string;
+  amount_raw: string;
+  tx_hash: string;
+  created_at: string;
+}
+
+export async function listWithdrawals(walletAddress: string): Promise<{ withdrawals: ApiWithdrawal[] }> {
+  const wallet = walletAddress?.trim();
+  if (!wallet) return { withdrawals: [] };
+  return apiJson(`/api/withdrawals?wallet=${encodeURIComponent(wallet)}`);
 }
 
 export async function deleteInvoice(id: string): Promise<void> {

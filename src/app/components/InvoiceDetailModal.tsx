@@ -1,4 +1,4 @@
-import { X, Calendar, DollarSign, Copy, CheckCircle2, Clock, AlertCircle, ExternalLink, Download, Send } from 'lucide-react';
+import { X, Calendar, DollarSign, Copy, CheckCircle2, Clock, AlertCircle, ExternalLink, Download, Send, Link2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
 interface InvoiceDetailModalProps {
@@ -217,6 +217,36 @@ export default function InvoiceDetailModal({ isDark, invoice, onClose }: Invoice
                       <ExternalLink className={`w-4 h-4 ${textMuted}`} />
                     </a>
                   )}
+                </div>
+              </div>
+            )}
+
+            {/* Payment link for payer */}
+            {invoice.id && (
+              <div className={`${isDark ? 'bg-white/5' : 'bg-gray-50'} rounded-xl p-5`}>
+                <p className={`text-xs font-bold uppercase tracking-wider ${textMuted} mb-3`}>Payment link</p>
+                <p className={`text-xs ${textSecondary} mb-3`}>Share this link with the client to pay the invoice.</p>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => copyToClipboard(`${typeof window !== 'undefined' ? window.location.origin : ''}/checkout?id=${invoice.id}`)}
+                    className={`px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2 border ${
+                      isDark ? 'border-white/20 hover:bg-white/10 text-white' : 'border-gray-300 hover:bg-gray-100 text-gray-900'
+                    } transition-colors`}
+                  >
+                    <Copy className="w-4 h-4" />
+                    Copy payment link
+                  </button>
+                  <a
+                    href={`${typeof window !== 'undefined' ? window.location.origin : ''}/checkout?id=${invoice.id}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className={`px-4 py-2 rounded-xl font-semibold text-sm flex items-center gap-2 border ${
+                      isDark ? 'border-[#FF1CF7]/30 hover:bg-[#FF1CF7]/10 text-[#FF1CF7]' : 'border-pink-300 hover:bg-pink-50 text-pink-600'
+                    } transition-colors`}
+                  >
+                    <Link2 className="w-4 h-4" />
+                    Open payment page
+                  </a>
                 </div>
               </div>
             )}
