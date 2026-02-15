@@ -581,6 +581,7 @@ function DashboardConnectGate({
 export default function App() {
   const [isDark, setIsDark] = useState(true);
   const [showDropdown, setShowDropdown] = useState(false);
+  const [showLaunchAppModal, setShowLaunchAppModal] = useState(false);
   const [walletRehydrated, setWalletRehydrated] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
@@ -645,6 +646,22 @@ export default function App() {
     navigate('/dashboard');
   };
 
+  // When user connects from Launch App modal, go to dashboard
+  useEffect(() => {
+    if (showLaunchAppModal && isWalletConnected) {
+      setShowLaunchAppModal(false);
+      navigate('/dashboard');
+    }
+  }, [showLaunchAppModal, isWalletConnected, navigate]);
+
+  const handleLaunchAppClick = () => {
+    if (isWalletConnected) {
+      navigate('/dashboard');
+    } else {
+      setShowLaunchAppModal(true);
+    }
+  };
+
   const truncateAddress = (address: string) => {
     return `${address.slice(0, 6)}...${address.slice(-4)}`;
   };
@@ -686,6 +703,43 @@ export default function App() {
     }`}>
       <ScrollProgress />
       <FloatingParticles isDark={isDark} />
+
+      {/* Launch App: Connect wallet modal */}
+      {showLaunchAppModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowLaunchAppModal(false)}>
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            className={`max-w-md w-full rounded-2xl p-8 text-center border shadow-2xl ${
+              isDark ? 'bg-[#1a1a24] border-white/10' : 'bg-white border-gray-200'
+            }`}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="w-16 h-16 mx-auto mb-6 rounded-2xl bg-gradient-to-br from-[#FF1CF7]/20 to-[#B967FF]/20 flex items-center justify-center border border-[#FF1CF7]/30">
+              <Wallet className="w-8 h-8 text-[#FF1CF7]" />
+            </div>
+            <h2 className={`text-xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>Connect your wallet</h2>
+            <p className={`text-sm mb-8 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+              Connect your wallet to launch the app and access your dashboard.
+            </p>
+            <button
+              onClick={handleConnectWallet}
+              className="w-full py-3 px-6 rounded-xl bg-gradient-to-r from-[#FF1CF7] to-[#B967FF] font-bold text-white shadow-lg shadow-[#FF1CF7]/30 hover:shadow-[#FF1CF7]/50 transition-all mb-3"
+            >
+              Connect Wallet
+            </button>
+            <button
+              onClick={() => setShowLaunchAppModal(false)}
+              className={`w-full py-3 px-6 rounded-xl font-semibold border transition-all ${
+                isDark ? 'border-white/20 text-gray-300 hover:bg-white/5' : 'border-gray-300 text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              Cancel
+            </button>
+          </motion.div>
+        </div>
+      )}
 
       {/* Navigation */}
       <motion.nav 
@@ -945,7 +999,10 @@ export default function App() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 1.8 }}
             >
-              <MagneticButton className="group relative px-10 py-4 bg-gradient-to-br from-[#497cff] via-[#2563eb] to-[#001664] text-white rounded-xl hover:shadow-2xl hover:shadow-blue-500/50 transition-all duration-500 overflow-hidden">
+              <MagneticButton
+                onClick={handleLaunchAppClick}
+                className="group relative px-10 py-4 bg-gradient-to-br from-[#497cff] via-[#2563eb] to-[#001664] text-white rounded-xl hover:shadow-2xl hover:shadow-blue-500/50 transition-all duration-500 overflow-hidden"
+              >
                 <motion.div 
                   className="absolute inset-0 bg-gradient-to-r from-[#FF1CF7]/0 via-[#FF1CF7]/20 to-[#00F0FF]/0"
                   initial={{ x: '-100%' }}
@@ -953,7 +1010,7 @@ export default function App() {
                   transition={{ duration: 0.6 }}
                 />
                 <div className="relative flex items-center justify-center gap-3 text-lg font-semibold">
-                  Create Invoice
+                  Launch App
                   <motion.div
                     animate={{ x: [0, 5, 0] }}
                     transition={{ duration: 1.5, repeat: Infinity }}
